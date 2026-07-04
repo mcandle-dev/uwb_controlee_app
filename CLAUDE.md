@@ -1,0 +1,121 @@
+# CLAUDE.md — UWB Controlee 테스트 앱 (uwb_controlee_app)
+
+## 프로젝트 개요
+Qorvo DWM3001CDK 보드(UCI 펌웨어, **controller/initiator**)와 FiRa UWB 레인징을 수행하는
+**Android Galaxy용 controlee 앱**. Kotlin + Jetpack Compose + `androidx.core.uwb` 기반.
+상용 앱이 아닌 **초도 기능 검증(Bring-up Test) 도구** — 많은 기능보다 "빠른 기본 동작 확인"이 최우선.
+
+## Ground Truth 문서 (반드시 먼저 읽을 것)
+- `docs/앱_기능_화면_요구사항정의서.md` — 기능(FR-1~10)·화면 레이아웃·상태 머신·NFR·검수 기준.
+  아래 '기능 요구사항' 절은 요약본이며, 상세는 이 문서가 기준. 단 **세션 파라미터·기술
+  계약이 충돌하면 CLAUDE.md가 우선**한다.
+
+## 배경 (이 문서가 존재하는 이유 — 이전 세션에서 확정된 사항)
+- 짝이 되는 PC 앱: `D:\dev\radar_test_console` (Flet 레이더 테스트 콘솔, 별도 프로젝트).
+  그쪽 `docs/QA_2026-07-03_UCI_CLI_펌웨어와_Pixel_인터롭.md`에 조사 내용 전체가 있다.
+- 보드 펌웨어는 `DWM3001CDK-UCI-FreeRTOS.hex` (UCI 바이너리 프로토콜) **고정**.
+  UCI 펌웨어는 스스로 동작하지 않으므로 PC의 UCI 호스트 스크립트가 보드를 구동한다.
+- 검증된 역할 분담: **보드=controller, 폰=controlee** (반대 방향은 타임아웃 잦음 — Qorvo 포럼 Pixel 8 Pro 사례).
+- 기준(레퍼런스) 구현: https://github.com/sasodoma/uwb-ranging
+  — PC측 `run_fira_twr.py`(UCI 호스트) + 짝이 되는 Android 앱. **세션 파라미터의 기준값은
+  반드시 이 리포의 쌍에서 가져올 것.** 구조 참고용 공식 샘플:
+  https://github.com/android/connectivity-samples/tree/main/UwbRanging
+- **현재 보드가 없다.** 실기기 페어 테스트는 보드 확보 후. 그전까지는 폰 단독으로
+  검증 가능한 데까지만 만든다 (아래 '구현 순서' 참고).
+
+## 기술 스택 (고정 — 변경 금지)
+- Kotlin / Jetpack Compose (단일 Activity, 단일 화면)
+- `androidx.core.uwb:uwb:1.0.0` (stable; 1.1.0-alpha01은 쓰지 않는다)
+- minSdk 31 (Android 12), targetSdk는 현행 최신
+- 외부 라이브러리 최소화: DI 프레임워크·네트워크·DB 금지. coroutine + StateFlow면 충분.
+
+## 대상 기기 전제
+- UWB 탑재 Galaxy만 동작: Note20 Ultra, S21+/Ultra, S22+/Ultra, S23+/Ultra,
+  S24+/Ultra, S25+/Ultra, Z Fold 2 이후 등. **베이스/FE 모델은 UWB 없음.**
+- 설정 → 연결 → **UWB(초광대역) 토글 ON** 필수. 일부 리전 펌웨어는 UWB 비활성.
+- 실행 시 `PackageManager.FEATURE_UWB` + `UWB_RANGING` 런타임 권한 확인/요청.
+
+## UWB 세션 계약 (보드 쪽과 바이트 단위로 일치해야 함 — 이 표가 이 프로젝트의 핵심)
+| 항목 | 값 (기본값) | 앱 쪽 API |
+|---|---|---|
+| Config | FiRa DS-TWR deferred, unicast | `RangingParameters.CONFIG_UNICAST_DS_TWR` |
+| Session ID | 42 (UI에서 변경 가능) | `sessionId` |
+| 채널 / 프리앰블 | 9 / 9 | `UwbComplexChannel(9, 9)` |
+| Static STS | Vendor ID 2B + IV 6B = 8바이트 | `sessionKeyInfo` (기본 `08 07 06 05 04 03 02 01`) |
+| 보드 주소 | short MAC 2바이트 (UI 입력) | `peerDevices = listOf(UwbDevice(UwbAddress(...)))` |
+| 내 주소 | 세션 스코프가 발급 | `sessionScope.localAddress` → **화면에 크게 표시** |
+| 갱신 주기 | AUTOMATIC | `updateRateType` |
+
+**주의:** 기본값은 placeholder다. 실제 기준값은 sasodoma 리포의 `run_fira_twr.py`와
+그 Android 앱 소스에서 **쌍으로** 추출해 맞출 것 (레인징 주기 120ms, slots/round 6,
+preamble 9, hopping on으로 알려져 있음). 파라미터가 하나라도 어긋나면 에러 없이
+**조용히 아무것도 안 나온다** — 이것이 이 도메인 최대의 함정.
+
+## 핵심 코드 흐름 (controlee)
+```kotlin
+val uwbManager = UwbManager.createInstance(context)
+val sessionScope = uwbManager.controleeSessionScope()   // suspend
+val myAddress = sessionScope.localAddress               // 화면 표시 → PC 스크립트 --dest-mac에 입력
+
+val params = RangingParameters(
+    uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
+    sessionId = 42, subSessionId = 0,
+    sessionKeyInfo = byteArrayOf(0x08, 0x07, 6, 5, 4, 3, 2, 1),
+    subSessionKeyInfo = null,
+    complexChannel = UwbComplexChannel(9, 9),
+    peerDevices = listOf(UwbDevice(UwbAddress(boardMacBytes))),
+    updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
+)
+rangingJob = scope.launch {
+    sessionScope.prepareSession(params).collect { result ->
+        when (result) {
+            is RangingResult.RangingResultPosition -> {
+                result.position.distance?.value   // 미터(Float) — cm 환산 표시
+                result.position.azimuth?.value    // 도(°) — Galaxy는 AoA 지원, nullable
+            }
+            is RangingResult.RangingResultPeerDisconnected -> { /* 끊김 상태 표시 */ }
+        }
+    }
+}
+// 정지 = rangingJob.cancel() (Flow 취소가 곧 세션 종료)
+```
+매니페스트: `<uses-feature android:name="android.hardware.uwb" android:required="true"/>` +
+`<uses-permission android:name="android.permission.UWB_RANGING"/>` (런타임 요청 필요).
+
+## 기능 요구사항 요약 (상세는 docs/앱_기능_화면_요구사항정의서.md — 스코프 추가 금지)
+1. UWB 가용성 배너: 미탑재/토글 OFF/권한 거부를 구분해 안내
+2. **내 UWB 주소 표시** (hex, 탭하면 클립보드 복사) — PC 스크립트에 입력할 값
+3. 입력 필드: 보드 MAC(hex 2바이트), Session ID. 나머지 파라미터는 상수(파일 상단)
+4. Start / Stop 버튼 (controlee를 먼저 시작하고 PC에서 controller를 start하는 순서를 UI에 안내 문구로)
+5. 실시간 표시: 거리(cm), 각도(azimuth °, 없으면 'N/A'), 상태(대기/레인징/끊김)
+6. 로그 콘솔: 타임스탬프 + 이벤트(시작/정지/측정 n건마다 1줄/끊김/에러) — 스크롤 리스트
+
+## 아키텍처 규칙
+- UI(Compose)는 `UwbRepository`(또는 ViewModel) 하나에만 의존. UWB API 호출을 Composable에 직접 쓰지 않는다.
+- 상태는 StateFlow<UiState> 단방향. 콜백/Flow 수집은 viewModelScope.
+- 모든 함수 type hint(Kotlin이므로 명시적 타입), 매직넘버 금지(상수화), 한 함수 30줄 이내.
+- 세션 파라미터 기본값은 한 파일(예: `UwbDefaults.kt`)에 모아 보드 쪽과 대조하기 쉽게.
+
+## 구현 순서 (한 단계씩, 각 단계 끝에서 멈춰 사용자 확인)
+1. 프로젝트 스캐폴드 + 매니페스트/권한/가용성 체크 화면 (UWB 없는 기기에서도 안내가 뜨는지)
+2. controleeSessionScope 획득 + 내 주소 표시 (실기기에서 주소가 나오면 성공)
+3. RangingParameters 구성 + Start/Stop + 결과 Flow 수집 + 거리/각도/로그 UI
+4. sasodoma 리포의 PC 스크립트와 파라미터 대조·정렬 (보드 없이 코드 리뷰 수준으로)
+5. [보드 확보 후] 실물 페어 테스트: 앱 Start → PC `run_fira_twr.py --dest-mac <폰주소>` 실행 → 거리 확인
+
+단계 1~4는 보드 없이 진행 가능. **단계 5 전에는 "동작한다"고 단정하지 말 것.**
+
+## 함정 목록 (이전 세션 조사에서 확인된 것들)
+- 파라미터 불일치 = 무증상 실패 (에러 콜백조차 없이 조용함)
+- Galaxy UWB 토글 OFF → availability false, 앱에서 안내해야 사용자가 헤매지 않음
+- controlee(앱)를 **먼저** 시작한 뒤 controller(보드)를 start해야 함
+- `azimuth`는 nullable — 기기/자세에 따라 안 나올 수 있음, 'N/A' 처리
+- 거리 단위: androidx는 **미터(Float)**, 레이더 콘솔 쪽은 cm — 표시할 때 환산
+- 보드(DWM3001CDK)는 안테나 1개라 보드 쪽에서는 각도가 안 나옴 — 각도 검증은 폰 쪽이 담당
+
+## 검증 명령
+```bash
+./gradlew assembleDebug
+./gradlew lint
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
