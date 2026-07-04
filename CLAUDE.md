@@ -41,15 +41,17 @@ Qorvo DWM3001CDK 보드(UCI 펌웨어, **controller/initiator**)와 FiRa UWB 레
 | Config | FiRa DS-TWR deferred, unicast | `RangingParameters.CONFIG_UNICAST_DS_TWR` |
 | Session ID | 42 (UI에서 변경 가능) | `sessionId` |
 | 채널 / 프리앰블 | 9 / 9 | `UwbComplexChannel(9, 9)` |
-| Static STS | Vendor ID 2B + IV 6B = 8바이트 | `sessionKeyInfo` (기본 `08 07 06 05 04 03 02 01`) |
-| 보드 주소 | short MAC 2바이트 (UI 입력) | `peerDevices = listOf(UwbDevice(UwbAddress(...)))` |
+| Static STS | Vendor ID 2B + IV 6B = 8바이트 | `sessionKeyInfo` (기본 `08 07 01 02 03 04 05 06`) |
+| 보드 주소 | short MAC 2바이트 (UI 입력, 기본 `00:00`) | `peerDevices = listOf(UwbDevice(UwbAddress(...)))` |
 | 내 주소 | 세션 스코프가 발급 | `sessionScope.localAddress` → **화면에 크게 표시** |
-| 갱신 주기 | AUTOMATIC | `updateRateType` |
+| 갱신 주기 | FREQUENT (= 120ms, PC RANGING_DURATION=120과 쌍) | `updateRateType` |
 
-**주의:** 기본값은 placeholder다. 실제 기준값은 sasodoma 리포의 `run_fira_twr.py`와
-그 Android 앱 소스에서 **쌍으로** 추출해 맞출 것 (레인징 주기 120ms, slots/round 6,
-preamble 9, hopping on으로 알려져 있음). 파라미터가 하나라도 어긋나면 에러 없이
-**조용히 아무것도 안 나온다** — 이것이 이 도메인 최대의 함정.
+**주의:** 위 값은 sasodoma 리포(@aad72a0)의 `run_fira_twr.py` + Android 앱에서 **쌍으로**
+추출해 대조 완료 (2026-07-04, `docs/파라미터_대조_4단계.md`). STS는 PC 쪽이 리틀엔디언
+정수(`VENDOR_ID 0x0708`, `STATIC_STS_IV 0x060504030201`)라서 바이트 나열이 뒤집힌다는 점에
+주의. PC는 반드시 sasodoma 사본 스크립트를 기본 옵션으로 실행(slots/round 6, hopping on,
+RSSI on이 이미 기본값). 파라미터가 하나라도 어긋나면 에러 없이 **조용히 아무것도 안
+나온다** — 이것이 이 도메인 최대의 함정.
 
 ## 핵심 코드 흐름 (controlee)
 ```kotlin
@@ -60,11 +62,11 @@ val myAddress = sessionScope.localAddress               // 화면 표시 → PC 
 val params = RangingParameters(
     uwbConfigType = RangingParameters.CONFIG_UNICAST_DS_TWR,
     sessionId = 42, subSessionId = 0,
-    sessionKeyInfo = byteArrayOf(0x08, 0x07, 6, 5, 4, 3, 2, 1),
+    sessionKeyInfo = byteArrayOf(0x08, 0x07, 1, 2, 3, 4, 5, 6),
     subSessionKeyInfo = null,
     complexChannel = UwbComplexChannel(9, 9),
     peerDevices = listOf(UwbDevice(UwbAddress(boardMacBytes))),
-    updateRateType = RangingParameters.RANGING_UPDATE_RATE_AUTOMATIC,
+    updateRateType = RangingParameters.RANGING_UPDATE_RATE_FREQUENT,
 )
 rangingJob = scope.launch {
     sessionScope.prepareSession(params).collect { result ->
