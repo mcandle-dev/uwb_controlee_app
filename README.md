@@ -118,6 +118,9 @@ PC 스크립트 + Android 앱 **쌍**. 상세 대조표와 바이트 순서 함�
 
 ## 빌드 & 설치
 
+빌드 없이 바로 설치하려면 [Releases](https://github.com/mcandle-dev/uwb_controlee_app/releases)에서
+`app-debug.apk`를 받아 `adb install -r app-debug.apk`.
+
 ```bash
 git clone https://github.com/mcandle-dev/uwb_controlee_app.git
 cd uwb_controlee_app
