@@ -8,11 +8,14 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
+import com.mcandle.uwbcontrolee.uwb.OobGattServer
+import com.mcandle.uwbcontrolee.uwb.OobStatus
 import com.mcandle.uwbcontrolee.uwb.RangingState
 import com.mcandle.uwbcontrolee.uwb.UwbAvailability
 import com.mcandle.uwbcontrolee.uwb.UwbDefaults
 import com.mcandle.uwbcontrolee.uwb.UwbRepository
 import com.mcandle.uwbcontrolee.uwb.formatUwbAddress
+import com.mcandle.uwbcontrolee.uwb.hasBleOobPermissions
 import com.mcandle.uwbcontrolee.uwb.parseBoardMac
 import com.mcandle.uwbcontrolee.uwb.parseSessionId
 import java.text.SimpleDateFormat
@@ -47,6 +50,10 @@ data class UiState(
     val azimuthDeg: Int? = null,
     val lastMeasurementAtMillis: Long? = null,
     val logLines: List<String> = emptyList(),
+    /** OOB 배지 (FR-16): OFF=배지 없음 / ADVERTISING ⚪ / CONNECTED 🔵 / UNAVAILABLE */
+    val oobStatus: OobStatus = OobStatus.OFF,
+    /** BLE 권한 거부됨 — OOB 안내 배너 노출 (FR-14). UWB 흐름과 무관 */
+    val blePermissionDenied: Boolean = false,
 ) {
     val isSessionActive: Boolean
         get() = rangingState == RangingState.WAITING || rangingState == RangingState.RANGING
@@ -63,6 +70,17 @@ data class UiState(
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository: UwbRepository = UwbRepository(application)
+
+    /**
+     * OOB GATT 서버 (FR-11~13) — Start 시 open, Stop/onCleared 시 close.
+     * 이벤트는 바인더 스레드에서 올 수 있어 viewModelScope로 마샬링해 로그에 남긴다.
+     */
+    private val oobServer: OobGattServer = OobGattServer(application) { message ->
+        viewModelScope.launch { appendLog(message) }
+    }
+
+    /** Start 시점 Session ID — 주소 재발급 Notify 페이로드 재조립용 (FR-13) */
+    private var activeSessionId: Int = UwbDefaults.SESSION_ID
 
     private val _uiState: MutableStateFlow<UiState> = MutableStateFlow(UiState())
     val uiState: StateFlow<UiState> = _uiState.asStateFlow()
@@ -85,6 +103,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        viewModelScope.launch {
+            oobServer.status.collect { status ->
+                _uiState.update { state -> state.copy(oobStatus = status) }
+            }
+        }
     }
 
     // ── 가용성 / 주소 (FR-1~3) ──────────────────────────────────────────
@@ -143,6 +166,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             previous != hex -> appendLog("내 주소 변경: $previous → $hex — PC에 다시 입력 필요")
         }
         _uiState.update { state -> state.copy(myAddress = hex) }
+        pushOobPayloadUpdate(hex)
+    }
+
+    /** 주소 재발급 시 OOB_INFO Notify (FR-13). 서버가 닫혀 있으면 저장만 되고 무동작 */
+    private fun pushOobPayloadUpdate(addressHex: String) {
+        val addressBytes: ByteArray = parseBoardMac(addressHex) ?: return
+        runCatching {
+            oobServer.updatePayload(UwbDefaults.buildOobPayload(addressBytes, activeSessionId))
+        }
     }
 
     private fun clearAddress() {
@@ -187,6 +219,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         rangingJob = viewModelScope.launch { collectRanging(boardMac, sessionId) }
         startWatchdog()
+        activeSessionId = sessionId
+        if (hasBleOobPermissions(getApplication())) {
+            openOobServer(sessionId)
+        } else {
+            appendLog("OOB 보류 — BLE 권한 응답 대기 (UWB는 정상 진행)")
+        }
+    }
+
+    /**
+     * BLE 권한 응답 (FR-14) — 허용 시 세션이 살아 있으면 OOB를 뒤늦게 연다.
+     * 거부는 OOB만 비활성: UWB 수동 흐름은 그대로, 배너로만 안내.
+     */
+    fun onBlePermissionResult(granted: Boolean) {
+        _uiState.update { state -> state.copy(blePermissionDenied = !granted) }
+        if (granted) {
+            appendLog("BLE 권한 허용됨")
+            if (_uiState.value.isSessionActive) openOobServer(activeSessionId)
+        } else {
+            appendLog("BLE 권한 거부됨 — OOB 비활성 (주소 수동 입력으로 계속 가능)")
+        }
+    }
+
+    /** OOB 서버 시작 — 어떤 실패도 UWB 흐름을 막지 않는다 (로그로만 종결) */
+    private fun openOobServer(sessionId: Int) {
+        val addressBytes: ByteArray? = _uiState.value.myAddress?.let(::parseBoardMac)
+        if (addressBytes == null) {
+            appendLog("OOB 생략 — 내 주소를 2바이트로 해석 불가")
+            return
+        }
+        try {
+            oobServer.open(UwbDefaults.buildOobPayload(addressBytes, sessionId))
+        } catch (t: Throwable) {
+            appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
+        }
     }
 
     fun stopRanging() {
@@ -213,12 +279,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         endSession(RangingState.IDLE)
     }
 
-    /** 세션 종료 공통 처리: job 취소(NFR-4) + 스코프 재발급(주소 변경 감지) */
+    /** 세션 종료 공통 처리: job 취소(NFR-4) + OOB 종료 + 스코프 재발급(주소 변경 감지) */
     private fun endSession(finalState: RangingState) {
         rangingJob?.cancel()
         rangingJob = null
         watchdogJob?.cancel()
         watchdogJob = null
+        runCatching { oobServer.close() }
         repository.clearControleeScope()
         _uiState.update { state -> state.copy(rangingState = finalState, noSignal = false) }
         renewControleeScope()
@@ -304,6 +371,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
         rangingJob?.cancel()
         watchdogJob?.cancel()
+        runCatching { oobServer.close() }
     }
 
     companion object {
