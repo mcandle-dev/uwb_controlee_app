@@ -92,6 +92,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var rangingJob: Job? = null
     private var watchdogJob: Job? = null
+    /** Start 시각 — WAITING 고착 감지 기준 (프레임워크 10초 자동 종료는 Flow에 신호가 없다) */
+    private var sessionStartedAtMillis: Long = 0L
     private var measurementCount: Int = 0
     private val recentDistancesCm: MutableList<Int> = mutableListOf()
 
@@ -217,6 +219,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastMeasurementAtMillis = null,
             )
         }
+        sessionStartedAtMillis = System.currentTimeMillis()
         rangingJob = viewModelScope.launch { collectRanging(boardMac, sessionId) }
         startWatchdog()
         activeSessionId = sessionId
@@ -249,7 +252,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         try {
-            oobServer.open(UwbDefaults.buildOobPayload(addressBytes, sessionId))
+            val payload: ByteArray = UwbDefaults.buildOobPayload(addressBytes, sessionId)
+            oobServer.open(payload) // 자동 실패 후 재Start면 이미 열려 있음 (no-op)
+            oobServer.updatePayload(payload) // Session ID 변경 등 최신값 반영
         } catch (t: Throwable) {
             appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
         }
@@ -270,6 +275,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (t: Throwable) {
             appendLog("세션 오류: $t")
             endSession(RangingState.ERROR)
+            return
+        }
+        onRangingFlowCompleted()
+    }
+
+    /**
+     * prepareSession Flow가 예외·emit 없이 정상 완료 = 프레임워크가 세션을 내린 것.
+     * (예: ranging_error_streak_timeout 10초 — 유효 측정 0건이면 스택이 자동 종료)
+     * 이걸 안 잡으면 UI가 WAITING에 고착된 채 라디오만 죽는다 — 실기기에서 확인된 버그.
+     */
+    private fun onRangingFlowCompleted() {
+        if (!_uiState.value.isSessionActive) return // Stop 등으로 이미 정리됨
+        if (measurementCount == 0) {
+            appendLog(
+                "세션 종료 감지 — 유효 측정 0건, 프레임워크 자동 종료(약 10초). " +
+                    "보드 미송신 또는 주소/파라미터 불일치 의심",
+            )
+            endSession(RangingState.ERROR)
+        } else {
+            appendLog("세션 종료 감지 — 프레임워크가 세션을 닫음 (측정 ${measurementCount}건 수신 후)")
+            endSession(RangingState.DISCONNECTED)
         }
     }
 
@@ -279,13 +305,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         endSession(RangingState.IDLE)
     }
 
-    /** 세션 종료 공통 처리: job 취소(NFR-4) + OOB 종료 + 스코프 재발급(주소 변경 감지) */
+    /**
+     * 세션 종료 공통 처리: job 취소(NFR-4) + OOB 정리 + 스코프 재발급(주소 변경 감지).
+     *
+     * OOB 수명 분기: 사용자 Stop(IDLE)은 사양서 §5대로 GATT 종료. 반면 자동 실패
+     * (ERROR/DISCONNECTED)는 OOB를 유지한다 — 종료 직후 재발급되는 새 주소가
+     * Notify로 콘솔에 자동 전달돼, 재시도 때 콘솔이 재스캔 없이 새 주소를 갖게 된다.
+     * (실패마다 주소가 바뀌는데 GATT까지 끊으면 콘솔이 옛 주소로 보드를 돌리는 함정)
+     */
     private fun endSession(finalState: RangingState) {
         rangingJob?.cancel()
         rangingJob = null
         watchdogJob?.cancel()
         watchdogJob = null
-        runCatching { oobServer.close() }
+        val keepOob: Boolean =
+            finalState == RangingState.ERROR || finalState == RangingState.DISCONNECTED
+        if (keepOob) {
+            appendLog("OOB 유지 — 새 주소를 Notify로 콘솔에 자동 전달 (재스캔 불필요)")
+        } else {
+            runCatching { oobServer.close() }
+        }
         repository.clearControleeScope()
         _uiState.update { state -> state.copy(rangingState = finalState, noSignal = false) }
         renewControleeScope()
@@ -347,12 +386,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun updateNoSignal() {
         val state: UiState = _uiState.value
+        if (state.rangingState == RangingState.WAITING) {
+            checkWaitingTimeout()
+            return
+        }
         if (state.rangingState != RangingState.RANGING || state.noSignal) return
         val lastAtMillis: Long = state.lastMeasurementAtMillis ?: return
         if (System.currentTimeMillis() - lastAtMillis > NO_SIGNAL_TIMEOUT_MS) {
             appendLog("수신없음 — ${NO_SIGNAL_TIMEOUT_MS / 1000}초간 측정 없음 (세션 유지)")
             _uiState.update { current -> current.copy(noSignal = true) }
         }
+    }
+
+    /**
+     * WAITING 고착 감지 — 프레임워크는 유효 측정 0건이면 약 10초에 세션을 자동 종료하는데
+     * (ranging_error_streak_timeout_ms=10000), 이때 prepareSession Flow는 완료도 emit도
+     * 없이 조용히 열려 있다 (S24 Ultra 실기기에서 확인). 시간 기반으로만 잡을 수 있다.
+     */
+    private fun checkWaitingTimeout() {
+        if (System.currentTimeMillis() - sessionStartedAtMillis <= WAITING_TIMEOUT_MS) return
+        appendLog(
+            "레인징 실패 — ${WAITING_TIMEOUT_MS / 1000}초 내 측정 없음. " +
+                "프레임워크가 세션을 이미 내렸을 수 있음 (보드 미송신 또는 주소/파라미터 불일치 의심)",
+        )
+        endSession(RangingState.ERROR)
     }
 
     // ── 공통 ────────────────────────────────────────────────────────────
@@ -379,5 +436,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val MEASUREMENT_LOG_INTERVAL: Int = 10
         private const val NO_SIGNAL_TIMEOUT_MS: Long = 2_000L
         private const val WATCHDOG_INTERVAL_MS: Long = 500L
+
+        /** 프레임워크 자동 종료(10초)보다 여유 있게 — WAITING에서 이 시간 내 측정 없으면 ERROR */
+        private const val WAITING_TIMEOUT_MS: Long = 12_000L
     }
 }
