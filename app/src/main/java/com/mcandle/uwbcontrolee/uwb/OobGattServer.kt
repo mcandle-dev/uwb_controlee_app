@@ -60,6 +60,7 @@ enum class OobStatus {
 class OobGattServer(
     private val context: Context,
     private val onEvent: (String) -> Unit,
+    private val onOobInfoRead: () -> Unit,
 ) {
     private val _status: MutableStateFlow<OobStatus> = MutableStateFlow(OobStatus.OFF)
     val status: StateFlow<OobStatus> = _status.asStateFlow()
@@ -99,8 +100,12 @@ class OobGattServer(
         synchronized(lock) {
             if (!isOpen && gattServer == null) return
             isOpen = false
+            val server: BluetoothGattServer? = gattServer
             runCatching { advertiser?.stopAdvertising(advertiseCallback) }
-            runCatching { gattServer?.close() }
+            connectedDevices.toList().forEach { device ->
+                runCatching { server?.cancelConnection(device) }
+            }
+            runCatching { server?.close() }
             gattServer = null
             advertiser = null
             oobCharacteristic = null
@@ -306,6 +311,7 @@ class OobGattServer(
         val value: ByteArray = payload.copyOfRange(offset, payload.size)
         sendResponseSafely(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, value)
         onEvent("OOB_INFO Read 응답 (${device.address}, ${payload.size}B)")
+        onOobInfoRead()
     }
 
     private fun handleCccdWrite(device: BluetoothDevice, value: ByteArray) {

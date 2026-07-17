@@ -75,9 +75,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * OOB GATT 서버 (FR-11~13) — Start 시 open, Stop/onCleared 시 close.
      * 이벤트는 바인더 스레드에서 올 수 있어 viewModelScope로 마샬링해 로그에 남긴다.
      */
-    private val oobServer: OobGattServer = OobGattServer(application) { message ->
-        viewModelScope.launch { appendLog(message) }
-    }
+    private val oobServer: OobGattServer = OobGattServer(
+        context = application,
+        onEvent = { message -> viewModelScope.launch { appendLog(message) } },
+        onOobInfoRead = { viewModelScope.launch { startPendingRangingFromOob() } },
+    )
 
     /** Start 시점 Session ID — 주소 재발급 Notify 페이로드 재조립용 (FR-13) */
     private var activeSessionId: Int = UwbDefaults.SESSION_ID
@@ -92,6 +94,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var rangingJob: Job? = null
     private var watchdogJob: Job? = null
+    private var oobWaitJob: Job? = null
+    private var pendingBoardMac: ByteArray? = null
+    private var waitingForOobRead: Boolean = false
     /** Start 시각 — WAITING 고착 감지 기준 (프레임워크 10초 자동 종료는 Flow에 신호가 없다) */
     private var sessionStartedAtMillis: Long = 0L
     private var measurementCount: Int = 0
@@ -209,7 +214,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val sessionId: Int = parseSessionId(state.sessionIdInput) ?: return
         measurementCount = 0
         recentDistancesCm.clear()
-        appendLog("세션 시작 — controlee 대기 (보드 ${state.boardMacInput.trim()}, session $sessionId)")
+        appendLog("세션 준비 — controlee 대기 (보드 ${state.boardMacInput.trim()}, session $sessionId)")
         _uiState.update { current ->
             current.copy(
                 rangingState = RangingState.WAITING,
@@ -219,14 +224,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastMeasurementAtMillis = null,
             )
         }
-        sessionStartedAtMillis = System.currentTimeMillis()
-        rangingJob = viewModelScope.launch { collectRanging(boardMac, sessionId) }
-        startWatchdog()
+        pendingBoardMac = boardMac
         activeSessionId = sessionId
         if (hasBleOobPermissions(getApplication())) {
             openOobServer(sessionId)
+            waitForOobRead()
         } else {
-            appendLog("OOB 보류 — BLE 권한 응답 대기 (UWB는 정상 진행)")
+            waitingForOobRead = true
+            appendLog("OOB 보류 — BLE 권한 응답 대기")
         }
     }
 
@@ -238,10 +243,48 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { state -> state.copy(blePermissionDenied = !granted) }
         if (granted) {
             appendLog("BLE 권한 허용됨")
-            if (_uiState.value.isSessionActive) openOobServer(activeSessionId)
+            if (_uiState.value.isSessionActive && rangingJob == null) {
+                openOobServer(activeSessionId)
+                waitForOobRead()
+            }
         } else {
-            appendLog("BLE 권한 거부됨 — OOB 비활성 (주소 수동 입력으로 계속 가능)")
+            appendLog("BLE 권한 거부됨 — OOB 비활성, 수동 레인징 시작")
+            beginPendingRanging("BLE 권한 없음")
         }
+    }
+
+    /** OOB Read 직후 폰 UWB를 시작해 PC 보드 시작과 10초 타임아웃 창을 맞춘다. */
+    private fun startPendingRangingFromOob() {
+        if (!waitingForOobRead || !_uiState.value.isSessionActive) return
+        beginPendingRanging("OOB_INFO 전달 완료")
+    }
+
+    private fun waitForOobRead() {
+        if (rangingJob != null) return
+        waitingForOobRead = true
+        oobWaitJob?.cancel()
+        appendLog("OOB_INFO Read 대기 — 읽힌 직후 UWB 시작")
+        oobWaitJob = viewModelScope.launch {
+            delay(OOB_READ_WAIT_TIMEOUT_MS)
+            if (waitingForOobRead && _uiState.value.isSessionActive) {
+                appendLog("OOB 대기 시간 초과 — 수동 입력 경로로 UWB 시작")
+                beginPendingRanging("OOB 대기 시간 초과")
+            }
+        }
+    }
+
+    private fun beginPendingRanging(reason: String) {
+        if (rangingJob != null || !_uiState.value.isSessionActive) return
+        val boardMac: ByteArray = pendingBoardMac ?: return
+        waitingForOobRead = false
+        oobWaitJob?.cancel()
+        oobWaitJob = null
+        measurementCount = 0
+        recentDistancesCm.clear()
+        sessionStartedAtMillis = System.currentTimeMillis()
+        appendLog("UWB 세션 시작 — $reason")
+        rangingJob = viewModelScope.launch { collectRanging(boardMac, activeSessionId) }
+        startWatchdog()
     }
 
     /** OOB 서버 시작 — 어떤 실패도 UWB 흐름을 막지 않는다 (로그로만 종결) */
@@ -314,6 +357,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * (실패마다 주소가 바뀌는데 GATT까지 끊으면 콘솔이 옛 주소로 보드를 돌리는 함정)
      */
     private fun endSession(finalState: RangingState) {
+        waitingForOobRead = false
+        pendingBoardMac = null
+        oobWaitJob?.cancel()
+        oobWaitJob = null
         rangingJob?.cancel()
         rangingJob = null
         watchdogJob?.cancel()
@@ -428,6 +475,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
         rangingJob?.cancel()
         watchdogJob?.cancel()
+        oobWaitJob?.cancel()
         runCatching { oobServer.close() }
     }
 
@@ -436,6 +484,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private const val MEASUREMENT_LOG_INTERVAL: Int = 10
         private const val NO_SIGNAL_TIMEOUT_MS: Long = 2_000L
         private const val WATCHDOG_INTERVAL_MS: Long = 500L
+        private const val OOB_READ_WAIT_TIMEOUT_MS: Long = 30_000L
 
         /** 프레임워크 자동 종료(10초)보다 여유 있게 — WAITING에서 이 시간 내 측정 없으면 ERROR */
         private const val WAITING_TIMEOUT_MS: Long = 12_000L

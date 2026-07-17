@@ -61,8 +61,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Start = UWB 즉시 시작 + BLE 권한 없으면 그때 요청 (FR-14 "첫 진입 시").
-     * 허용 응답이 오면 ViewModel이 뒤늦게 OOB를 연다 — BLE가 UWB를 절대 막지 않음.
+     * Start = OOB 광고 시작, OOB_INFO Read 직후 UWB 시작.
+     * BLE 권한이 거부되거나 OOB가 시간 초과하면 수동 UWB 흐름으로 폴백한다.
      */
     private fun startRangingWithOob() {
         viewModel.startRanging()
