@@ -6,6 +6,22 @@
 
 ## 2026-07-25
 
+### OOB 유령 연결 정리 — 재Start 시 배지 CONNECTED 고착 수정
+
+- **증상**: FGS 도입 후 첫 연결은 정상이나, 이후 재Start 시 PC 스캐너 상태와 무관하게
+  배지가 곧바로 `연결됨`으로 표시됨
+- **원인**: FGS 도입 전에는 앱이 백그라운드로 갈 때마다 세션 종료 → GATT 완전 리셋이라
+  매 시도가 깨끗한 상태에서 시작했음. 도입 후 GATT 서버가 시도를 넘어 장수하면서,
+  central 해제 콜백을 놓친 경우 `connectedDevices`에 옛 기기가 남아 `open()` no-op 경로에서
+  상태가 `CONNECTED`로 고착되고 광고도 재개되지 않음
+- **수정**: 재Start 시(`open()`이 이미 열려 있을 때) BLE 스택의 실제 연결 목록
+  (`getConnectedDevices(GATT_SERVER)`)과 대조해 유령 연결을 제거하고, 연결이 없으면
+  광고 재개 + `ADVERTISING` 복귀
+- 참고: PC(Windows) 쪽이 GATT 연결을 실제로 물고 있으면 `연결됨` 표시는 정확한 상태다 —
+  이 경우 콘솔 쪽에서 연결을 정리해야 함
+- **자동 검증**: `.\gradlew.bat test assembleDebug` 성공. 실기기 재현 시나리오
+  (연결 → 종료 → 스캐너 끄고 재Start)로 재검증 필요
+
 ### 백그라운드 세션 유지 — Foreground Service 도입 (NFR-3 개정)
 
 - **요구사항 개정**: "앱 백그라운드 진입 시 세션 정지"(구 NFR-3) → **백그라운드에서도

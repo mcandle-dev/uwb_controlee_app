@@ -77,7 +77,12 @@ class OobGattServer(
     /** Start 시 호출. 실패해도 예외를 던지지 않는다 — UNAVAILABLE + 로그로 종결 */
     fun open(initialPayload: ByteArray) {
         synchronized(lock) {
-            if (isOpen) return
+            if (isOpen) {
+                // NFR-3 이후 서버가 Start를 넘어 오래 살므로, 재Start 때 스택 기준으로
+                // 유령 연결을 정리한다 — 안 하면 배지가 CONNECTED에 고착될 수 있다.
+                reconcileStaleConnections()
+                return
+            }
             payload = initialPayload
             val adapter: BluetoothAdapter? =
                 (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
@@ -126,6 +131,31 @@ class OobGattServer(
             if (targets.isNotEmpty()) {
                 onEvent("OOB_INFO 변경 Notify 발신 (${targets.size}대)")
             }
+        }
+    }
+
+    /**
+     * 추적 중인 연결을 BLE 스택의 실제 연결 목록과 대조해 유령 연결을 제거 (lock 보유 상태에서 호출).
+     * 해제 콜백을 놓친 채 서버가 계속 살아 있으면(keepOob·백그라운드 유지) connectedDevices에
+     * 옛 central이 남아 광고 재개가 안 되고 배지가 CONNECTED로 고착된다.
+     */
+    private fun reconcileStaleConnections() {
+        val manager: BluetoothManager =
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
+        val actuallyConnected: Set<BluetoothDevice> = runCatching {
+            manager.getConnectedDevices(BluetoothProfile.GATT_SERVER).toSet()
+        }.getOrElse { return }
+        val staleDevices: List<BluetoothDevice> =
+            connectedDevices.filterNot { device -> device in actuallyConnected }
+        if (staleDevices.isEmpty()) return
+        staleDevices.forEach { device ->
+            connectedDevices.remove(device)
+            subscribedDevices.remove(device)
+            onEvent("OOB 유령 연결 정리 (${device.address}) — 스택 기준 미연결")
+        }
+        if (connectedDevices.isEmpty()) {
+            _status.value = OobStatus.ADVERTISING
+            runCatching { startAdvertising() }
         }
     }
 
