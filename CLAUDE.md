@@ -9,6 +9,10 @@ Qorvo DWM3001CDK 보드(UCI 펌웨어, **controller/initiator**)와 FiRa UWB 레
 - `docs/앱_기능_화면_요구사항정의서.md` — 기능(FR-1~10)·화면 레이아웃·상태 머신·NFR·검수 기준.
   아래 '기능 요구사항' 절은 요약본이며, 상세는 이 문서가 기준. 단 **세션 파라미터·기술
   계약이 충돌하면 CLAUDE.md가 우선**한다.
+- `docs/oob/BLE_OOB_인터페이스_사양서.md` — BLE OOB 인터페이스 (UUID·페이로드의 마스터)
+- `docs/CHANGELOG.md` — 날짜별 변경 이력. **새 작업을 커밋할 때마다 맨 위에 항목 추가.**
+- `docs/TODO.md` — 남은 작업 / `docs/5단계_보드_테스트_가이드.md` — 실물 보드 테스트 절차
+- `AGENTS.md` — Codex용 지침 (이 문서와 같은 계약을 담음). **계약·규칙을 바꾸면 두 파일을 함께 갱신.**
 
 ## 배경 (이 문서가 존재하는 이유 — 이전 세션에서 확정된 사항)
 - 짝이 되는 PC 앱: `D:\dev\radar_test_console` (Flet 레이더 테스트 콘솔, 별도 프로젝트).
@@ -20,8 +24,9 @@ Qorvo DWM3001CDK 보드(UCI 펌웨어, **controller/initiator**)와 FiRa UWB 레
   — PC측 `run_fira_twr.py`(UCI 호스트) + 짝이 되는 Android 앱. **세션 파라미터의 기준값은
   반드시 이 리포의 쌍에서 가져올 것.** 구조 참고용 공식 샘플:
   https://github.com/android/connectivity-samples/tree/main/UwbRanging
-- **현재 보드가 없다.** 실기기 페어 테스트는 보드 확보 후. 그전까지는 폰 단독으로
-  검증 가능한 데까지만 만든다 (아래 '구현 순서' 참고).
+- **실기기 E2E 검증 완료 (2026-07-17):** Galaxy controlee의 OOB 주소를 PC 콘솔이 자동
+  수신한 뒤 DWM3001CDK와 연결해 레인징 정상 동작 확인 (`docs/CHANGELOG.md` 참고).
+  단, 새 변경은 실물 페어 재검증 전까지 "동작한다"고 단정하지 말 것.
 
 ## 기술 스택 (고정 — 변경 금지)
 - Kotlin / Jetpack Compose (단일 Activity, 단일 화면)
@@ -96,6 +101,24 @@ rangingJob = scope.launch {
 매니페스트: `<uses-feature android:name="android.hardware.uwb" android:required="true"/>` +
 `<uses-permission android:name="android.permission.UWB_RANGING"/>` (런타임 요청 필요).
 
+### Start 시퀀스 (OOB 이후 확정 — af562e4)
+Start를 눌러도 UWB를 즉시 열지 않는다. **BLE 광고·GATT를 먼저 열고, 콘솔이 OOB_INFO 7B를
+Read한 직후에 UWB 세션을 시작**한다 (PC 스캔·연결 중 폰 세션의 10초 타임아웃이 먼저
+만료되던 문제 방지). 수동 경로 폴백: BLE 권한 거부 시 즉시, OOB Read가 30초
+(`OOB_READ_WAIT_TIMEOUT_MS`) 안에 없으면 타임아웃 후 보드 주소 수동 입력값으로 UWB 시작.
+OOB 실패가 레인징 자체를 막으면 안 된다.
+
+### 세션 자동 종료 처리 (6713fe3 — S24 Ultra 실기기에서 확인)
+Android UWB 스택은 유효 측정 0건이면 약 10초(`ranging_error_streak_timeout_ms=10000`) 후
+세션을 **자동 종료**하는데, 이때 `prepareSession` Flow는 에러 없이 조용하다:
+- Flow가 예외·emit 없이 **정상 완료**되면 = 프레임워크가 세션을 내린 것.
+  측정 0건이면 `ERROR`(주소/파라미터 불일치 의심 로그), 측정 후면 `DISCONNECTED`.
+- Flow가 완료조차 안 하고 열려 있는 경우도 있다 → 시간 기반 워치독으로만 잡힌다:
+  WAITING에서 12초(`WAITING_TIMEOUT_MS`) 내 측정 없으면 `ERROR` 전환.
+- **OOB 수명 분기**: 자동 실패(`ERROR`/`DISCONNECTED`)는 GATT 유지 — 재발급된 새 폰 주소를
+  Notify로 콘솔에 자동 전달(재스캔 불필요). 사용자 Stop(`IDLE`)만 GATT 종료
+  (연결된 central을 명시적으로 끊은 뒤 close).
+
 ## 기능 요구사항 요약 (상세는 docs/앱_기능_화면_요구사항정의서.md — 스코프 추가 금지)
 1. UWB 가용성 배너: 미탑재/토글 OFF/권한 거부를 구분해 안내
 2. **내 UWB 주소 표시** (hex, 탭하면 클립보드 복사) — PC 스크립트에 입력할 값
@@ -112,14 +135,25 @@ rangingJob = scope.launch {
 - 모든 함수 type hint(Kotlin이므로 명시적 타입), 매직넘버 금지(상수화), 한 함수 30줄 이내.
 - 세션 파라미터 기본값은 한 파일(예: `UwbDefaults.kt`)에 모아 보드 쪽과 대조하기 쉽게.
 
+## 주요 코드 위치
+- 앱 진입점: `app/src/main/java/com/mcandle/uwbcontrolee/MainActivity.kt`
+- UI: `app/src/main/java/com/mcandle/uwbcontrolee/ui/MainScreen.kt`
+- 상태 및 세션 조정(Start 시퀀스·워치독·OOB 수명): `app/src/main/java/com/mcandle/uwbcontrolee/MainViewModel.kt`
+- UWB API 경계: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbRepository.kt`
+- 세션/OOB 상수: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbDefaults.kt`
+- BLE GATT 서버: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobGattServer.kt`
+- OOB 단위 테스트: `app/src/test/java/com/mcandle/uwbcontrolee/uwb/OobPayloadTest.kt`
+
 ## 구현 순서 (한 단계씩, 각 단계 끝에서 멈춰 사용자 확인)
 1. 프로젝트 스캐폴드 + 매니페스트/권한/가용성 체크 화면 (UWB 없는 기기에서도 안내가 뜨는지)
 2. controleeSessionScope 획득 + 내 주소 표시 (실기기에서 주소가 나오면 성공)
 3. RangingParameters 구성 + Start/Stop + 결과 Flow 수집 + 거리/각도/로그 UI
 4. sasodoma 리포의 PC 스크립트와 파라미터 대조·정렬 (보드 없이 코드 리뷰 수준으로)
-5. [보드 확보 후] 실물 페어 테스트: 앱 Start → PC `run_fira_twr.py --dest-mac <폰주소>` 실행 → 거리 확인
+5. 실물 페어 테스트: 앱 Start → PC 콘솔(OOB 자동 수신 또는 `--dest-mac <폰주소>`) → 거리 확인
 
-단계 1~4는 보드 없이 진행 가능. **단계 5 전에는 "동작한다"고 단정하지 말 것.**
+단계 1~5 완료 (5단계 E2E는 2026-07-17 성공). 이후 변경도 **실물 페어 재검증 전에는
+"동작한다"고 단정하지 말 것** — 자동 검증(test/assembleDebug) 결과와 실기기 검증 결과를
+구분해 보고한다.
 
 ## 함정 목록 (이전 세션 조사에서 확인된 것들)
 - 파라미터 불일치 = 무증상 실패 (에러 콜백조차 없이 조용함)
@@ -128,10 +162,20 @@ rangingJob = scope.launch {
 - `azimuth`는 nullable — 기기/자세에 따라 안 나올 수 있음, 'N/A' 처리
 - 거리 단위: androidx는 **미터(Float)**, 레이더 콘솔 쪽은 cm — 표시할 때 환산
 - 보드(DWM3001CDK)는 안테나 1개라 보드 쪽에서는 각도가 안 나옴 — 각도 검증은 폰 쪽이 담당
+- 프레임워크 10초 자동 종료는 Flow에 신호가 없거나(워치독으로만 감지) 정상 완료로만 나타남
+  — 위 '세션 자동 종료 처리' 참고. WAITING 고착처럼 보이면 이미 라디오는 죽어 있을 수 있다
+- 세션 종료마다 폰 주소가 재발급된다 — 자동 실패 후 GATT까지 닫으면 콘솔이 옛 주소로
+  보드를 돌리는 함정. BLE 광고/GATT 수명과 UWB 세션 수명은 의도적으로 다르다
+- 첫 측정 전 WAITING과 측정 후 RANGING/무신호(noSignal 플래그)를 혼동하지 않는다
 
 ## 검증 명령
-```bash
-./gradlew assembleDebug
-./gradlew lint
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+Windows PowerShell 기준:
+```powershell
+.\gradlew.bat test
+.\gradlew.bat assembleDebug
+.\gradlew.bat lint
+adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
+변경 범위에 비례해 검증: Kotlin/UWB 로직 변경은 최소 `test` + `assembleDebug`,
+UI/매니페스트/리소스 변경은 `lint`도. `adb install`·실기기 페어 테스트는 연결된 적합
+기기가 있을 때만.

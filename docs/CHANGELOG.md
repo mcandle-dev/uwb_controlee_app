@@ -4,6 +4,21 @@
 > 상세 요구사항·검증 절차는 `앱_기능_화면_요구사항정의서.md`, `TODO.md`,
 > `5단계_보드_테스트_가이드.md` 참고.
 
+## 2026-07-25
+
+### CLAUDE.md를 AGENTS.md·최근 커밋 내용과 동기화 (문서만, 코드 변경 없음)
+
+- **Start 시퀀스 반영**: OOB_INFO Read 직후 UWB 시작, BLE 권한 거부/30초 타임아웃 시
+  수동 경로 폴백 (`af562e4` 내용)
+- **세션 자동 종료 처리 절 신설**: 프레임워크 10초 자동 종료(측정 0건 `ERROR` /
+  측정 후 `DISCONNECTED`), WAITING 12초 워치독, 자동 실패 시 OOB GATT 유지·Stop 시만
+  종료 (`6713fe3` 내용)
+- **상태 최신화**: "보드 없음" 전제 삭제 → 2026-07-17 실물 E2E 성공 기록, 구현 순서
+  1~5단계 완료 표기
+- Ground Truth 문서 목록에 OOB 사양서·CHANGELOG·TODO·AGENTS.md 추가
+  ("계약 변경 시 CLAUDE.md/AGENTS.md 함께 갱신" 규칙 명시), 주요 코드 위치 절 추가,
+  함정 목록 보강, 검증 명령을 PowerShell 기준 `test`/`assembleDebug`/`lint`로 갱신
+
 ## 2026-07-17
 
 ### OOB 실기기 E2E + 레인징 시작 타이밍 안정화 (`6713fe3` + 후속 변경)
