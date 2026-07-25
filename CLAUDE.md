@@ -118,6 +118,10 @@ Android UWB 스택은 유효 측정 0건이면 약 10초(`ranging_error_streak_t
 - **OOB 수명 분기**: 자동 실패(`ERROR`/`DISCONNECTED`)는 GATT 유지 — 재발급된 새 폰 주소를
   Notify로 콘솔에 자동 전달(재스캔 불필요). 사용자 Stop(`IDLE`)만 GATT 종료
   (연결된 central을 명시적으로 끊은 뒤 close).
+- **재Start = 연결 초기화**: 서버가 열린 채 재Start하면 유지 중인 central을 모두 끊고
+  광고부터 다시 시작한다. 콘솔(PC)은 Notify 구독을 위해 연결을 유지하는 설계라,
+  안 끊으면 새 Read가 오지 않아 UWB 시작이 30초 타임아웃까지 지연되고 배지도
+  `연결됨`에 머문다. Notify의 목적(실패 직후 새 주소 전달)은 세션 종료 시점에 이미 달성됨.
 
 ### 백그라운드 세션 유지 (NFR-3 개정 — Foreground Service)
 UWB 스택은 **포그라운드 앱 또는 Foreground Service에만 레인징을 허용**한다 — FGS 없이

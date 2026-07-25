@@ -6,7 +6,22 @@
 
 ## 2026-07-25
 
-### OOB 유령 연결 정리 — 재Start 시 배지 CONNECTED 고착 수정
+### 재Start 시 OOB 연결 초기화 — 배지 CONNECTED 고착 + 30초 지연 수정 (유령 정리 후속)
+
+- **아래 '유령 연결 정리'로도 증상 지속** — 원인은 유령이 아니라 **진짜 연결**이었음.
+  PC 콘솔(`radar_test_console/ble_oob.py`)은 주소 재발급 Notify 구독을 위해 GATT 연결을
+  의도적으로 유지한다. FGS 도입 전에는 백그라운드 전환 때마다 폰이 GATT를 닫아 이
+  지속 연결이 드러나지 않았음
+- **기능 문제**: 재Start 시 폰은 새 OOB_INFO Read를 기다리는데, 이미 연결된 콘솔은 다시
+  Read하지 않으므로 30초 타임아웃까지 UWB 시작이 지연됨
+- **수정**: 재Start(`open()`이 이미 열려 있을 때) 유지 중인 central을 모두 끊고 광고부터
+  재개 — 매 Start가 E2E 검증된 "광고 → 스캔 → 연결 → Read → UWB" 흐름으로 돌게 함.
+  실패 직후 새 주소 Notify(keepOob 목적)는 세션 종료 시점에 이미 전달되므로 유지됨
+- 재Start 초기화가 이미 정리한 기기의 늦은 해제 콜백이 광고를 이중 시작
+  (`ALREADY_STARTED` → UNAVAILABLE)하지 않도록 가드 추가
+- **자동 검증**: `.\gradlew.bat test assembleDebug` 성공. 실기기 재검증 필요
+
+### OOB 유령 연결 정리 — 재Start 시 배지 CONNECTED 고착 수정 (증상 지속 — 위 항목으로 대체)
 
 - **증상**: FGS 도입 후 첫 연결은 정상이나, 이후 재Start 시 PC 스캐너 상태와 무관하게
   배지가 곧바로 `연결됨`으로 표시됨

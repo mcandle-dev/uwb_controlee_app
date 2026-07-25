@@ -78,9 +78,10 @@ class OobGattServer(
     fun open(initialPayload: ByteArray) {
         synchronized(lock) {
             if (isOpen) {
-                // NFR-3 이후 서버가 Start를 넘어 오래 살므로, 재Start 때 스택 기준으로
-                // 유령 연결을 정리한다 — 안 하면 배지가 CONNECTED에 고착될 수 있다.
-                reconcileStaleConnections()
+                // NFR-3 이후 서버가 Start를 넘어 오래 살므로, 재Start는 연결을 초기화해
+                // 항상 "광고 → 연결 → Read → UWB" 흐름으로 돌린다. 콘솔이 연결을 유지한
+                // 채로 두면 새 Read가 오지 않아 30초 타임아웃까지 기다리게 된다.
+                resetConnectionsForRestart()
                 return
             }
             payload = initialPayload
@@ -135,28 +136,27 @@ class OobGattServer(
     }
 
     /**
-     * 추적 중인 연결을 BLE 스택의 실제 연결 목록과 대조해 유령 연결을 제거 (lock 보유 상태에서 호출).
-     * 해제 콜백을 놓친 채 서버가 계속 살아 있으면(keepOob·백그라운드 유지) connectedDevices에
-     * 옛 central이 남아 광고 재개가 안 되고 배지가 CONNECTED로 고착된다.
+     * 재Start 시 연결 초기화 (lock 보유 상태에서 호출) — 유지 중인 central(진짜든 유령이든)을
+     * 끊고 광고부터 다시 시작한다. keepOob의 목적(실패 직후 새 주소 Notify)은 세션 종료
+     * 시점에 이미 달성됐고, 새 Start는 콘솔의 새 Read가 UWB 시작 트리거이므로
+     * "광고 → 스캔 → 연결 → Read" 흐름을 강제하는 편이 결정적이다.
      */
-    private fun reconcileStaleConnections() {
-        val manager: BluetoothManager =
-            context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: return
-        val actuallyConnected: Set<BluetoothDevice> = runCatching {
-            manager.getConnectedDevices(BluetoothProfile.GATT_SERVER).toSet()
-        }.getOrElse { return }
-        val staleDevices: List<BluetoothDevice> =
-            connectedDevices.filterNot { device -> device in actuallyConnected }
-        if (staleDevices.isEmpty()) return
-        staleDevices.forEach { device ->
-            connectedDevices.remove(device)
-            subscribedDevices.remove(device)
-            onEvent("OOB 유령 연결 정리 (${device.address}) — 스택 기준 미연결")
+    private fun resetConnectionsForRestart() {
+        val devices: List<BluetoothDevice> = connectedDevices.toList()
+        if (devices.isEmpty()) {
+            if (_status.value != OobStatus.ADVERTISING) {
+                _status.value = OobStatus.ADVERTISING
+                runCatching { startAdvertising() }
+            }
+            return
         }
-        if (connectedDevices.isEmpty()) {
-            _status.value = OobStatus.ADVERTISING
-            runCatching { startAdvertising() }
-        }
+        val server: BluetoothGattServer? = gattServer
+        devices.forEach { device -> runCatching { server?.cancelConnection(device) } }
+        connectedDevices.clear()
+        subscribedDevices.clear()
+        onEvent("OOB 연결 초기화 (${devices.size}대) — 재Start는 광고부터 (콘솔 재연결 필요)")
+        _status.value = OobStatus.ADVERTISING
+        runCatching { startAdvertising() }
     }
 
     // ── 내부: 서버·광고 구성 ────────────────────────────────────────────
@@ -311,9 +311,11 @@ class OobGattServer(
     }
 
     private fun onCentralDisconnected(device: BluetoothDevice) {
-        connectedDevices.remove(device)
+        // 재Start 초기화(resetConnectionsForRestart)가 이미 정리한 기기의 늦은 콜백이면
+        // 광고를 이중 시작(ALREADY_STARTED 실패 → UNAVAILABLE)하지 않도록 건너뛴다.
+        val wasTracked: Boolean = connectedDevices.remove(device)
         subscribedDevices.remove(device)
-        if (!isOpen) return
+        if (!isOpen || !wasTracked) return
         onEvent("OOB central 연결 해제 (${device.address})")
         if (connectedDevices.isEmpty()) {
             // 사양서 §5 규칙 2: 해제 후 서버가 열려 있으면(WAITING/RANGING) 광고 재개
