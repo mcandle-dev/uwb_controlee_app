@@ -35,6 +35,11 @@
 - 실행 시 `PackageManager.FEATURE_UWB`와 `UWB_RANGING` 런타임 권한을 확인한다.
 - 역할은 보드=controller/initiator, 폰=controlee로 고정한다.
 - controlee 앱을 먼저 Start한 후 보드 controller를 시작한다.
+- 백그라운드 세션 유지(NFR-3): UWB 스택은 포그라운드 앱 또는 Foreground Service에만
+  레인징을 허용한다. 세션 중에는 `RangingForegroundService`(`connectedDevice` 타입,
+  프로세스 유지 전용)가 떠 있어야 하며, FGS 수명은 "OOB GATT 유지 ∪ 세션 활성"과 같다.
+  FGS 시작은 반드시 포그라운드(사용자 Start)에서 한다. 태스크 스와이프 제거 시 세션이
+  끝나는 것은 의도된 범위다.
 - 실물 보드로 검증하지 않은 동작을 "동작한다"고 단정하지 않는다. 코드/단위 테스트 결과와 실기기 검증 결과를 구분해 보고한다.
 
 ## UWB 세션 계약
@@ -88,6 +93,7 @@ Session ID 42는 `2A 00 00 00`이다. `00 00 00 2A`로 보내면 안 된다. OOB
 - 앱 진입점: `app/src/main/java/com/mcandle/uwbcontrolee/MainActivity.kt`
 - UI: `app/src/main/java/com/mcandle/uwbcontrolee/ui/MainScreen.kt`
 - 상태 및 세션 조정: `app/src/main/java/com/mcandle/uwbcontrolee/MainViewModel.kt`
+- 백그라운드 유지 FGS: `app/src/main/java/com/mcandle/uwbcontrolee/RangingForegroundService.kt`
 - UWB API 경계: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbRepository.kt`
 - 세션/OOB 상수: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbDefaults.kt`
 - BLE GATT 서버: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobGattServer.kt`
@@ -101,6 +107,8 @@ Session ID 42는 `2A 00 00 00`이다. `00 00 00 2A`로 보내면 안 된다. OOB
 - 첫 측정 전 WAITING과 측정 후 RANGING/무신호 상태를 혼동하지 않는다.
 - 보드는 안테나가 하나이므로 보드 측 각도 결과를 기대하지 않는다. 각도 검증은 폰 측에서 한다.
 - BLE 광고/GATT 수명과 UWB 세션 수명은 의도적으로 다를 수 있으므로 종료 로직을 변경할 때 재시도 흐름까지 검토한다.
+- 백그라운드 레인징은 FGS가 떠 있을 때만 허용된다. FGS 없이 백그라운드에 진입하면 세션이 에러 없이 조용히 종료된다.
+- Galaxy 절전 기능(잠자는 앱)이 FGS를 죽일 수 있다. 장시간 백그라운드 테스트는 배터리 최적화 제외를 안내한다.
 
 ## 작업 방식
 

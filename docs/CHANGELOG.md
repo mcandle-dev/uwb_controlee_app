@@ -6,6 +6,25 @@
 
 ## 2026-07-25
 
+### 백그라운드 세션 유지 — Foreground Service 도입 (NFR-3 개정)
+
+- **요구사항 개정**: "앱 백그라운드 진입 시 세션 정지"(구 NFR-3) → **백그라운드에서도
+  OOB 광고·레인징 지속**. 요구사항정의서 범위(제외 목록에서 백그라운드 레인징 삭제)와
+  NFR-3 개정
+- **`RangingForegroundService` 추가**: `connectedDevice` 타입, 로직 없는 프로세스 유지
+  전용. UWB 스택이 포그라운드 앱/FGS에만 레인징을 허용하므로 필수 — 없으면 백그라운드
+  진입 즉시 세션이 무증상 종료됨. Start 시 시작, 사용자 Stop/onCleared 시 종료.
+  자동 실패(`ERROR`/`DISCONNECTED`)에서는 OOB GATT와 함께 FGS도 유지해 백그라운드에서도
+  재발급 주소 Notify가 콘솔에 닿게 함 (FGS 수명 = OOB 유지 ∪ 세션 활성)
+- **`onAppBackgrounded()`**: 세션 정지 → 로그만 남기고 유지로 변경
+- **권한**: `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`,
+  `POST_NOTIFICATIONS`(API 33+, Start 때 BLE 권한과 한 번에 요청 — 연속 다이얼로그는
+  앞 요청이 취소되는 문제 회피, 거부 시 알림만 숨겨지고 동작 유지)
+- ViewModel 소유 구조는 유지 — 태스크 스와이프 제거 시 세션 종료는 의도된 범위
+- 문서: 요구사항정의서·CLAUDE.md·AGENTS.md 동기 갱신
+- **자동 검증**: `.\gradlew.bat test assembleDebug` 성공. **화면 꺼짐/앱 전환 중 레인징
+  지속 여부는 실기기(+보드) 재검증 필요** — AOSP 기준 동작이며 삼성 펌웨어 확인 전
+
 ### CLAUDE.md를 AGENTS.md·최근 커밋 내용과 동기화 (문서만, 코드 변경 없음)
 
 - **Start 시퀀스 반영**: OOB_INFO Read 직후 UWB 시작, BLE 권한 거부/30초 타임아웃 시

@@ -119,6 +119,17 @@ Android UWB 스택은 유효 측정 0건이면 약 10초(`ranging_error_streak_t
   Notify로 콘솔에 자동 전달(재스캔 불필요). 사용자 Stop(`IDLE`)만 GATT 종료
   (연결된 central을 명시적으로 끊은 뒤 close).
 
+### 백그라운드 세션 유지 (NFR-3 개정 — Foreground Service)
+UWB 스택은 **포그라운드 앱 또는 Foreground Service에만 레인징을 허용**한다 — FGS 없이
+백그라운드로 가면 세션이 무증상으로 내려간다(이 도메인 특유의 조용한 실패).
+`RangingForegroundService`(`connectedDevice` 타입, 로직 없는 프로세스 유지용)를
+Start 시 띄우고, 사용자 Stop/onCleared에서 내린다. **FGS 수명 = OOB GATT 유지 ∪ 세션
+활성** — 자동 실패(`ERROR`/`DISCONNECTED`) 시에는 OOB와 함께 FGS도 유지해 백그라운드에서도
+재발급 주소 Notify가 콘솔에 닿게 한다. 알림 권한(API 33+)은 Start 때 BLE 권한과 한 번에
+요청(다이얼로그 연속 발사는 앞 요청이 취소됨) — 거부돼도 알림만 숨겨지고 동작은 유지.
+태스크 스와이프 제거는 세션 종료(ViewModel 소유 한계 — 의도된 범위). Galaxy 절전
+("잠자는 앱")이 FGS를 죽일 수 있으니 장시간 테스트는 배터리 최적화 제외 권장.
+
 ## 기능 요구사항 요약 (상세는 docs/앱_기능_화면_요구사항정의서.md — 스코프 추가 금지)
 1. UWB 가용성 배너: 미탑재/토글 OFF/권한 거부를 구분해 안내
 2. **내 UWB 주소 표시** (hex, 탭하면 클립보드 복사) — PC 스크립트에 입력할 값
@@ -139,6 +150,7 @@ Android UWB 스택은 유효 측정 0건이면 약 10초(`ranging_error_streak_t
 - 앱 진입점: `app/src/main/java/com/mcandle/uwbcontrolee/MainActivity.kt`
 - UI: `app/src/main/java/com/mcandle/uwbcontrolee/ui/MainScreen.kt`
 - 상태 및 세션 조정(Start 시퀀스·워치독·OOB 수명): `app/src/main/java/com/mcandle/uwbcontrolee/MainViewModel.kt`
+- 백그라운드 유지 FGS: `app/src/main/java/com/mcandle/uwbcontrolee/RangingForegroundService.kt`
 - UWB API 경계: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbRepository.kt`
 - 세션/OOB 상수: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbDefaults.kt`
 - BLE GATT 서버: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobGattServer.kt`
@@ -167,6 +179,8 @@ Android UWB 스택은 유효 측정 0건이면 약 10초(`ranging_error_streak_t
 - 세션 종료마다 폰 주소가 재발급된다 — 자동 실패 후 GATT까지 닫으면 콘솔이 옛 주소로
   보드를 돌리는 함정. BLE 광고/GATT 수명과 UWB 세션 수명은 의도적으로 다르다
 - 첫 측정 전 WAITING과 측정 후 RANGING/무신호(noSignal 플래그)를 혼동하지 않는다
+- 백그라운드 레인징은 FGS가 떠 있을 때만 허용 — FGS 없이 백그라운드 진입 = 무증상 세션 종료.
+  FGS 시작은 반드시 포그라운드(사용자 Start)에서 (백그라운드 FGS 시작 제한)
 
 ## 검증 명령
 Windows PowerShell 기준:

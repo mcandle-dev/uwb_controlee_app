@@ -102,7 +102,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var measurementCount: Int = 0
     private val recentDistancesCm: MutableList<Int> = mutableListOf()
 
-    /** 앱 전체 백그라운드 진입 감지 — 화면 회전에는 반응하지 않음 (NFR-3) */
+    /** 앱 전체 백그라운드 진입 감지 — 화면 회전에는 반응하지 않음. 로그 기록용 (NFR-3) */
     private val processLifecycleObserver: LifecycleEventObserver =
         LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) onAppBackgrounded()
@@ -226,6 +226,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         pendingBoardMac = boardMac
         activeSessionId = sessionId
+        // NFR-3: FGS로 프로세스를 유지해야 백그라운드에서도 OOB 광고·레인징이 지속된다.
+        // 사용자 Start 직후(포그라운드)라 백그라운드 FGS 시작 제한에 걸리지 않는다.
+        RangingForegroundService.start(getApplication())
         if (hasBleOobPermissions(getApplication())) {
             openOobServer(sessionId)
             waitForOobRead()
@@ -342,10 +345,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * NFR-3 개정: 백그라운드에서도 세션을 유지한다 — FGS가 프로세스 importance를 보장.
+     * 만약 FGS 없이 백그라운드로 갔다면 UWB 스택이 세션을 무증상으로 내리는데,
+     * 그 경우는 Flow 정상 완료(onRangingFlowCompleted)나 WAITING 워치독이 잡는다.
+     */
     private fun onAppBackgrounded() {
         if (!_uiState.value.isSessionActive) return
-        appendLog("앱 백그라운드 진입 — 세션 정지 (백그라운드 레인징 미지원)")
-        endSession(RangingState.IDLE)
+        appendLog("앱 백그라운드 진입 — Foreground Service로 세션 유지")
     }
 
     /**
@@ -368,9 +375,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val keepOob: Boolean =
             finalState == RangingState.ERROR || finalState == RangingState.DISCONNECTED
         if (keepOob) {
+            // FGS도 함께 유지 — 백그라운드에서 실패해도 GATT·프로세스가 살아 있어
+            // 재발급 주소 Notify가 콘솔에 닿는다. 다음 Start/Stop/onCleared에서 정리.
             appendLog("OOB 유지 — 새 주소를 Notify로 콘솔에 자동 전달 (재스캔 불필요)")
         } else {
             runCatching { oobServer.close() }
+            RangingForegroundService.stop(getApplication())
         }
         repository.clearControleeScope()
         _uiState.update { state -> state.copy(rangingState = finalState, noSignal = false) }
@@ -477,6 +487,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         watchdogJob?.cancel()
         oobWaitJob?.cancel()
         runCatching { oobServer.close() }
+        RangingForegroundService.stop(getApplication())
     }
 
     companion object {
