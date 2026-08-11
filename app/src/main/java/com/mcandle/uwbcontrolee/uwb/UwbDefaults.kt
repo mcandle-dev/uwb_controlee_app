@@ -63,6 +63,12 @@ object UwbDefaults {
     /** OOB_INFO Characteristic UUID — Read + Notify (Write 없음) */
     val OOB_CHARACTERISTIC_UUID: UUID = UUID.fromString("5F1D0002-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
 
+    /** 콘솔→폰 광고(Service Data) UUID — 모드 3(SCANNER) 전용, 사양서 v0.3 §5-2 신설 */
+    val ADV_INFO_UUID: UUID = UUID.fromString("5F1D0003-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
+
+    /** 모드 3 스캔 폴백 대기 — 기존 OOB Read 대기(30초)와 동일값 (plan 001 D4) */
+    const val SCAN_WAIT_TIMEOUT_MS: Long = 30_000L
+
     /** 광고 Local Name — 콘솔이 UUID 필터와 함께 참고 (사양서 §3) */
     const val OOB_LOCAL_NAME: String = "UWB-OOB"
 
@@ -92,4 +98,30 @@ object UwbDefaults {
             ((sessionId ushr 24) and 0xFF).toByte(),
         )
     }
+
+    /**
+     * OOB_INFO 페이로드(≥7B) 해석 — buildOobPayload 의 역함수 (spec 001 모드 3, 사양서 §4).
+     * 파서 규칙: 길이 ≥7B 만 검사, 추가 바이트 무시(전방 호환), version>0x01 은
+     * v1 파싱을 시도하되 호출자가 protocolVersion 을 보고 경고한다.
+     */
+    fun parseOobPayload(data: ByteArray): OobInfo? {
+        if (data.size < OOB_PAYLOAD_SIZE) return null
+        val sessionId: Int = (data[3].toInt() and 0xFF) or
+            ((data[4].toInt() and 0xFF) shl 8) or
+            ((data[5].toInt() and 0xFF) shl 16) or
+            ((data[6].toInt() and 0xFF) shl 24)
+        return OobInfo(
+            protocolVersion = data[0].toInt() and 0xFF,
+            addressHex = "%02X:%02X".format(data[1].toInt() and 0xFF, data[2].toInt() and 0xFF),
+            sessionId = sessionId,
+        )
+    }
 }
+
+/** 파싱된 OOB_INFO (사양서 §4). 모드 3 에서는 uwb_address = 보드 MAC */
+data class OobInfo(
+    val protocolVersion: Int,
+    /** 표시 순서 그대로 hex (예 "5F:DD") — 보드 MAC 입력칸 형식과 동일 */
+    val addressHex: String,
+    val sessionId: Int,
+)

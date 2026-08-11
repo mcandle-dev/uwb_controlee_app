@@ -1,6 +1,8 @@
 package com.mcandle.uwbcontrolee
 
 import android.app.Application
+import android.content.Context
+import android.content.SharedPreferences
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
 import androidx.lifecycle.AndroidViewModel
@@ -8,7 +10,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
+import com.mcandle.uwbcontrolee.uwb.OobBeacon
 import com.mcandle.uwbcontrolee.uwb.OobGattServer
+import com.mcandle.uwbcontrolee.uwb.OobInfo
+import com.mcandle.uwbcontrolee.uwb.OobMode
+import com.mcandle.uwbcontrolee.uwb.OobScanner
 import com.mcandle.uwbcontrolee.uwb.OobStatus
 import com.mcandle.uwbcontrolee.uwb.RangingState
 import com.mcandle.uwbcontrolee.uwb.UwbAvailability
@@ -52,8 +58,12 @@ data class UiState(
     val logLines: List<String> = emptyList(),
     /** OOB 배지 (FR-16): OFF=배지 없음 / ADVERTISING ⚪ / CONNECTED 🔵 / UNAVAILABLE */
     val oobStatus: OobStatus = OobStatus.OFF,
+    /** BLE OOB 교환 모드 (spec 001, 사양서 v0.3 §2). 레인징 중 변경 금지 (규칙 0) */
+    val oobMode: OobMode = OobMode.DEFAULT,
     /** BLE 권한 거부됨 — OOB 안내 배너 노출 (FR-14). UWB 흐름과 무관 */
     val blePermissionDenied: Boolean = false,
+    /** 콘솔 광고 시뮬레이터 송출 중 (검수 12 테스트 보조 — 이 폰을 가짜 콘솔로) */
+    val consoleSimActive: Boolean = false,
 ) {
     val isSessionActive: Boolean
         get() = rangingState == RangingState.WAITING || rangingState == RangingState.RANGING
@@ -81,6 +91,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         onOobInfoRead = { viewModelScope.launch { startPendingRangingFromOob() } },
     )
 
+    /** OOB 모드 2 (BEACON 송출, spec 001) — 모드에 따라 oobServer 대신 이쪽을 연다 (plan D1) */
+    private val oobBeacon: OobBeacon = OobBeacon(
+        context = application,
+        onEvent = { message -> viewModelScope.launch { appendLog(message) } },
+    )
+
+    /** OOB 모드 3 (SCANNER 관찰, spec 001 T301) — 수신 콜백은 바인더 스레드에서 올 수 있어 마샬링 */
+    private val oobScanner: OobScanner = OobScanner(
+        context = application,
+        onEvent = { message -> viewModelScope.launch { appendLog(message) } },
+        onAdvertReceived = { payload -> viewModelScope.launch { onOobAdvertReceived(payload) } },
+    )
+
+    /**
+     * 콘솔 광고 시뮬레이터 (검수 12 테스트 보조) — 이 폰을 "가짜 콘솔"로 만들어
+     * ADV_INFO(`5F1D0003`)를 보드 MAC·SID 입력값으로 송출한다. 두 번째 폰에 같은 앱을
+     * 설치해 모드 3 테스트 상대로 쓰는 용도. UWB 세션·OOB 채널 수명과 완전 독립.
+     */
+    private val consoleSimBeacon: OobBeacon = OobBeacon(
+        context = application,
+        onEvent = { message -> viewModelScope.launch { appendLog("[시뮬] $message") } },
+        serviceDataUuid = UwbDefaults.ADV_INFO_UUID,
+    )
+
+    /** 모드 영속화 (plan D3) — 키 oob_mode, 기본 ADVERTISE_GATT */
+    private val prefs: SharedPreferences =
+        application.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
     /** Start 시점 Session ID — 주소 재발급 Notify 페이로드 재조립용 (FR-13) */
     private var activeSessionId: Int = UwbDefaults.SESSION_ID
 
@@ -97,6 +135,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var oobWaitJob: Job? = null
     private var pendingBoardMac: ByteArray? = null
     private var waitingForOobRead: Boolean = false
+    /** 모드 3: 콘솔 광고 수신 대기 중 (미수신 30초 → 수동 입력값 폴백, §7-14) */
+    private var waitingForScanAdvert: Boolean = false
     /** Start 시각 — WAITING 고착 감지 기준 (프레임워크 10초 자동 종료는 Flow에 신호가 없다) */
     private var sessionStartedAtMillis: Long = 0L
     private var measurementCount: Int = 0
@@ -110,11 +150,79 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
+        _uiState.update { state ->
+            state.copy(oobMode = OobMode.fromStorageValue(prefs.getString(KEY_OOB_MODE, null)))
+        }
+        // 배지는 현재 모드의 채널 것만 반영 — 비활성 채널은 close 되어 OFF 로 조용하다
         viewModelScope.launch {
             oobServer.status.collect { status ->
-                _uiState.update { state -> state.copy(oobStatus = status) }
+                if (_uiState.value.oobMode == OobMode.ADVERTISE_GATT) {
+                    _uiState.update { state -> state.copy(oobStatus = status) }
+                }
             }
         }
+        viewModelScope.launch {
+            oobBeacon.status.collect { status ->
+                if (_uiState.value.oobMode == OobMode.BEACON) {
+                    _uiState.update { state -> state.copy(oobStatus = status) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            oobScanner.status.collect { status ->
+                if (_uiState.value.oobMode == OobMode.SCANNER) {
+                    _uiState.update { state -> state.copy(oobStatus = status) }
+                }
+            }
+        }
+        viewModelScope.launch {
+            consoleSimBeacon.status.collect { status ->
+                _uiState.update { state ->
+                    state.copy(consoleSimActive = status == OobStatus.ADVERTISING)
+                }
+            }
+        }
+    }
+
+    /**
+     * 콘솔 광고 시뮬레이터 토글 (검수 12 테스트 보조). 현재 보드 MAC·SID 입력값을
+     * payload 로 송출한다 — 값을 바꾸려면 껐다 켠다. 배지가 아닌 버튼 문구로만 표시.
+     */
+    fun toggleConsoleSimulator() {
+        if (_uiState.value.consoleSimActive) {
+            runCatching { consoleSimBeacon.close() }
+            return
+        }
+        val state: UiState = _uiState.value
+        val boardMac: ByteArray? = parseBoardMac(state.boardMacInput)
+        val sessionId: Int? = parseSessionId(state.sessionIdInput)
+        if (boardMac == null || sessionId == null) {
+            appendLog("[시뮬] 시작 불가 — 보드 MAC/Session ID 입력값이 유효하지 않음")
+            return
+        }
+        appendLog(
+            "[시뮬] 콘솔 광고(5F1D0003) 송출 — 보드 ${state.boardMacInput.trim()} · session $sessionId " +
+                "(상대 폰을 모드 3 으로 Start)",
+        )
+        runCatching { consoleSimBeacon.open(UwbDefaults.buildOobPayload(boardMac, sessionId)) }
+    }
+
+    // ── OOB 모드 선택 (spec 001, plan D3) ───────────────────────────────
+
+    /** 레인징 중 변경 금지 (사양서 규칙 0). 전환 시 유지 중이던 OOB 채널은 정리한다 */
+    fun onOobModeChanged(mode: OobMode) {
+        val state: UiState = _uiState.value
+        if (state.oobMode == mode) return
+        if (state.isSessionActive) {
+            appendLog("레인징 중에는 OOB 모드를 바꿀 수 없음 (Stop 후 변경)")
+            return
+        }
+        // 자동 실패 후 keepOob 로 살아 있던 채널도 모드 전환은 명시적 사용자 행위이므로 닫는다
+        closeOobChannels()
+        RangingForegroundService.stop(getApplication())
+        prefs.edit().putString(KEY_OOB_MODE, mode.storageValue).apply()
+        _uiState.update { current -> current.copy(oobMode = mode, oobStatus = OobStatus.OFF) }
+        appendLog("OOB 모드 변경: ${mode.label}")
     }
 
     // ── 가용성 / 주소 (FR-1~3) ──────────────────────────────────────────
@@ -176,11 +284,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pushOobPayloadUpdate(hex)
     }
 
-    /** 주소 재발급 시 OOB_INFO Notify (FR-13). 서버가 닫혀 있으면 저장만 되고 무동작 */
+    /**
+     * 주소 재발급 시 갱신 전파 — 모드 1 은 Notify(FR-13), 모드 2 는 광고 교체(사양서 §7-15).
+     * 두 채널 모두에 밀어도 닫힌 쪽은 저장만 하고 무동작이라 안전하다.
+     */
     private fun pushOobPayloadUpdate(addressHex: String) {
         val addressBytes: ByteArray = parseBoardMac(addressHex) ?: return
         runCatching {
-            oobServer.updatePayload(UwbDefaults.buildOobPayload(addressBytes, activeSessionId))
+            val payload: ByteArray = UwbDefaults.buildOobPayload(addressBytes, activeSessionId)
+            oobServer.updatePayload(payload)
+            oobBeacon.updatePayload(payload)
         }
     }
 
@@ -229,12 +342,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // NFR-3: FGS로 프로세스를 유지해야 백그라운드에서도 OOB 광고·레인징이 지속된다.
         // 사용자 Start 직후(포그라운드)라 백그라운드 FGS 시작 제한에 걸리지 않는다.
         RangingForegroundService.start(getApplication())
-        if (hasBleOobPermissions(getApplication())) {
-            openOobServer(sessionId)
-            waitForOobRead()
-        } else {
-            waitingForOobRead = true
-            appendLog("OOB 보류 — BLE 권한 응답 대기")
+        when (state.oobMode) {
+            // 모드 1 (v1 현행): 광고 → OOB Read 대기(30초) → UWB 시작. 아래 경로는 spec 001
+            // 이전과 문장 단위로 동일해야 한다 (plan D2 — 회귀 기준).
+            OobMode.ADVERTISE_GATT ->
+                if (hasBleOobPermissions(getApplication())) {
+                    openOobServer(sessionId)
+                    waitForOobRead()
+                } else {
+                    waitingForOobRead = true
+                    appendLog("OOB 보류 — BLE 권한 응답 대기")
+                }
+            // 모드 2: Read 가 없다 — 콘솔이 광고를 언제 봤는지 폰은 모른다 (plan D2).
+            // UWB 를 즉시 시작하고, 콘솔이 늦으면 자동실패 후 광고 유지(P7)로 재Start 유도.
+            OobMode.BEACON -> {
+                if (hasBleOobPermissions(getApplication())) {
+                    openOobBeacon(sessionId)
+                } else {
+                    appendLog("OOB 보류 — BLE 권한 응답 대기")
+                }
+                beginPendingRanging("BEACON 모드 — Read 대기 없이 즉시 시작")
+            }
+            // 모드 3 (T301/T302): 스캔 → 콘솔 광고 수신 → 보드 MAC·SID 반영 → UWB 시작.
+            // 미수신 30초 후 수동 입력값 폴백 (§7-14). §2-1 병행 송출은 수신 시점에 (T303).
+            OobMode.SCANNER ->
+                if (hasBleOobPermissions(getApplication(), OobMode.SCANNER)) {
+                    openOobScanner()
+                    waitForOobAdvert()
+                } else {
+                    waitingForScanAdvert = true
+                    appendLog("OOB 보류 — BLE 권한 응답 대기")
+                }
         }
     }
 
@@ -246,9 +384,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { state -> state.copy(blePermissionDenied = !granted) }
         if (granted) {
             appendLog("BLE 권한 허용됨")
-            if (_uiState.value.isSessionActive && rangingJob == null) {
-                openOobServer(activeSessionId)
-                waitForOobRead()
+            if (!_uiState.value.isSessionActive) return
+            when (_uiState.value.oobMode) {
+                OobMode.ADVERTISE_GATT -> if (rangingJob == null) {
+                    openOobServer(activeSessionId)
+                    waitForOobRead()
+                }
+                // 모드 2 는 UWB 가 이미 돌고 있다 — 광고만 뒤늦게 합류
+                OobMode.BEACON -> openOobBeacon(activeSessionId)
+                OobMode.SCANNER -> if (rangingJob == null) {
+                    openOobScanner()
+                    waitForOobAdvert()
+                }
             }
         } else {
             appendLog("BLE 권한 거부됨 — OOB 비활성, 수동 레인징 시작")
@@ -276,10 +423,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 모드 3: 콘솔 광고 수신 대기 (T302). 미수신 시 수동 입력값 폴백 (§7-14) */
+    private fun waitForOobAdvert() {
+        if (rangingJob != null) return
+        waitingForScanAdvert = true
+        oobWaitJob?.cancel()
+        appendLog("콘솔 광고 수신 대기(최대 ${UwbDefaults.SCAN_WAIT_TIMEOUT_MS / 1000}초) — 수신 즉시 자동 반영")
+        oobWaitJob = viewModelScope.launch {
+            delay(UwbDefaults.SCAN_WAIT_TIMEOUT_MS)
+            if (waitingForScanAdvert && _uiState.value.isSessionActive) {
+                appendLog("콘솔 광고 미수신 — 수동 입력값으로 UWB 시작 (양쪽 모드가 짝인지 확인, §7-11/14)")
+                beginPendingRanging("스캔 대기 시간 초과")
+            }
+        }
+    }
+
+    /**
+     * 모드 3: APPLY 판정 광고 수신 (T302/T303) — 보드 MAC·SID 반영 → 병행 송출 → UWB 시작.
+     * 스캔은 유지한다 (§2-1 병행안: 관찰 + 송출 동시 — 콘솔 광고 변경 감지도 겸함).
+     */
+    private fun onOobAdvertReceived(payload: ByteArray) {
+        if (!_uiState.value.isSessionActive) return
+        val info: OobInfo = UwbDefaults.parseOobPayload(payload) ?: run {
+            appendLog("콘솔 광고 파싱 실패 (${payload.size}B) — 무시")
+            return
+        }
+        if (info.protocolVersion != UwbDefaults.OOB_PROTOCOL_VERSION.toInt()) {
+            appendLog("경고 — OOB 버전 ${info.protocolVersion} 수신, v1 로 해석 시도 (사양서 §4)")
+        }
+        if (rangingJob != null) {
+            appendLog("콘솔 광고 변경 감지 (보드 ${info.addressHex}, session ${info.sessionId}) — 세션 중 변경 미지원, 재Start 필요")
+            return
+        }
+        waitingForScanAdvert = false
+        appendLog("콘솔 광고 수신 — 보드 ${info.addressHex} · session ${info.sessionId} 자동 반영")
+        _uiState.update { state ->
+            state.copy(
+                boardMacInput = info.addressHex,
+                boardMacError = null,
+                sessionIdInput = info.sessionId.toString(),
+                sessionIdError = null,
+            )
+        }
+        pendingBoardMac = parseBoardMac(info.addressHex)
+        activeSessionId = info.sessionId
+        openOobBeacon(info.sessionId) // §2-1 병행 송출 (T303) — 콘솔이 폰 주소(DST_MAC) 확보 경로
+        beginPendingRanging("콘솔 광고 수신")
+    }
+
     private fun beginPendingRanging(reason: String) {
         if (rangingJob != null || !_uiState.value.isSessionActive) return
         val boardMac: ByteArray = pendingBoardMac ?: return
         waitingForOobRead = false
+        waitingForScanAdvert = false
         oobWaitJob?.cancel()
         oobWaitJob = null
         measurementCount = 0
@@ -301,6 +497,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val payload: ByteArray = UwbDefaults.buildOobPayload(addressBytes, sessionId)
             oobServer.open(payload) // 자동 실패 후 재Start면 이미 열려 있음 (no-op)
             oobServer.updatePayload(payload) // Session ID 변경 등 최신값 반영
+        } catch (t: Throwable) {
+            appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
+        }
+    }
+
+    /** 모드 3 SCANNER 시작 (spec 001 T301) — openOobServer 와 동일한 실패 무전파 규칙 (P6) */
+    private fun openOobScanner() {
+        try {
+            oobScanner.open()
+        } catch (t: Throwable) {
+            appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
+        }
+    }
+
+    /** 모드 2 BEACON 시작 (spec 001 T203) — openOobServer 와 동일한 실패 무전파 규칙 (P6) */
+    private fun openOobBeacon(sessionId: Int) {
+        val addressBytes: ByteArray? = _uiState.value.myAddress?.let(::parseBoardMac)
+        if (addressBytes == null) {
+            appendLog("OOB 생략 — 내 주소를 2바이트로 해석 불가")
+            return
+        }
+        try {
+            oobBeacon.open(UwbDefaults.buildOobPayload(addressBytes, sessionId))
         } catch (t: Throwable) {
             appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
         }
@@ -365,6 +584,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private fun endSession(finalState: RangingState) {
         waitingForOobRead = false
+        waitingForScanAdvert = false
         pendingBoardMac = null
         oobWaitJob?.cancel()
         oobWaitJob = null
@@ -375,11 +595,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val keepOob: Boolean =
             finalState == RangingState.ERROR || finalState == RangingState.DISCONNECTED
         if (keepOob) {
-            // FGS도 함께 유지 — 백그라운드에서 실패해도 GATT·프로세스가 살아 있어
-            // 재발급 주소 Notify가 콘솔에 닿는다. 다음 Start/Stop/onCleared에서 정리.
-            appendLog("OOB 유지 — 새 주소를 Notify로 콘솔에 자동 전달 (재스캔 불필요)")
+            // FGS도 함께 유지 — 백그라운드에서 실패해도 채널·프로세스가 살아 있어
+            // 재발급 주소가 콘솔에 닿는다 (모드 1=Notify, 모드 2=광고 교체 — P7).
+            // 다음 Start/Stop/모드 전환/onCleared에서 정리.
+            appendLog("OOB 유지 — 새 주소를 콘솔에 자동 전달 (모드 1 Notify / 모드 2 광고 교체)")
         } else {
-            runCatching { oobServer.close() }
+            closeOobChannels()
             RangingForegroundService.stop(getApplication())
         }
         repository.clearControleeScope()
@@ -481,12 +702,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** 모든 OOB 채널을 닫는다 — 열려 있지 않은 쪽 close 는 no-op 이라 항상 안전 */
+    private fun closeOobChannels() {
+        runCatching { oobServer.close() }
+        runCatching { oobBeacon.close() }
+        runCatching { oobScanner.close() }
+    }
+
     override fun onCleared() {
         ProcessLifecycleOwner.get().lifecycle.removeObserver(processLifecycleObserver)
         rangingJob?.cancel()
         watchdogJob?.cancel()
         oobWaitJob?.cancel()
-        runCatching { oobServer.close() }
+        closeOobChannels()
+        runCatching { consoleSimBeacon.close() }
         RangingForegroundService.stop(getApplication())
     }
 
@@ -499,5 +728,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         /** 프레임워크 자동 종료(10초)보다 여유 있게 — WAITING에서 이 시간 내 측정 없으면 ERROR */
         private const val WAITING_TIMEOUT_MS: Long = 12_000L
+
+        /** 모드 영속화 (spec 001, plan D3) */
+        private const val PREFS_NAME: String = "uwb_controlee_prefs"
+        private const val KEY_OOB_MODE: String = "oob_mode"
     }
 }

@@ -12,11 +12,13 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.mcandle.uwbcontrolee"
+        // v2(3모드)는 v1(v1.0_controlee_advertise 설치본)과 한 폰에 공존해야 페어 테스트가
+        // 가능하다 — applicationId 만 분리, namespace(코드 패키지)는 그대로 둔다.
+        applicationId = "com.mcandle.uwbcontrolee.v2"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 2
+        versionName = "2.0-dev"
     }
 
     buildTypes {

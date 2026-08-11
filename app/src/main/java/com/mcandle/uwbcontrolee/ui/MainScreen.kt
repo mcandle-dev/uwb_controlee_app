@@ -19,16 +19,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -45,6 +50,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcandle.uwbcontrolee.MainViewModel
 import com.mcandle.uwbcontrolee.UiState
+import com.mcandle.uwbcontrolee.uwb.OobMode
 import com.mcandle.uwbcontrolee.uwb.OobStatus
 import com.mcandle.uwbcontrolee.uwb.RangingState
 import com.mcandle.uwbcontrolee.uwb.UwbAvailability
@@ -80,6 +86,7 @@ fun MainScreen(
     onOpenAppSettings: () -> Unit,
     onStartRanging: () -> Unit,
     onRequestBlePermissions: () -> Unit,
+    onToggleConsoleSim: () -> Unit,
 ) {
     val uiState: UiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
@@ -107,6 +114,7 @@ fun MainScreen(
             MyAddressCard(
                 myAddress = uiState.myAddress,
                 oobStatus = uiState.oobStatus,
+                oobMode = uiState.oobMode,
                 onCopy = { address ->
                     coroutineScope.launch {
                         clipboard.setClipEntry(
@@ -121,6 +129,8 @@ fun MainScreen(
                 uiState = uiState,
                 onBoardMacChanged = viewModel::onBoardMacChanged,
                 onSessionIdChanged = viewModel::onSessionIdChanged,
+                onOobModeChanged = viewModel::onOobModeChanged,
+                onToggleConsoleSim = onToggleConsoleSim,
             )
             ControlSection(
                 uiState = uiState,
@@ -208,6 +218,7 @@ private fun BannerCard(
 private fun MyAddressCard(
     myAddress: String?,
     oobStatus: OobStatus,
+    oobMode: OobMode,
     onCopy: (String) -> Unit,
 ) {
     Card(
@@ -230,19 +241,25 @@ private fun MyAddressCard(
                     fontSize = 36.sp,
                     fontWeight = FontWeight.Bold,
                 )
-                OobBadge(status = oobStatus)
+                OobBadge(status = oobStatus, mode = oobMode)
             }
         }
     }
 }
 
-/** OOB 상태 소형 배지 (FR-16) — OFF면 아무것도 그리지 않음 (기존 화면과 동일) */
+/**
+ * OOB 상태 소형 배지 (FR-16) — OFF면 아무것도 그리지 않음. 모드 3(SCANNER)은 같은 상태값의
+ * 의미가 다르다 (§6-1 매핑: ADVERTISING=스캔중, CONNECTED=광고 수신 확정) — 표기만 분기.
+ */
 @Composable
-private fun OobBadge(status: OobStatus) {
+private fun OobBadge(status: OobStatus, mode: OobMode) {
+    val isScanner: Boolean = mode == OobMode.SCANNER
     val badge: Pair<Color, String> = when (status) {
         OobStatus.OFF -> return
-        OobStatus.ADVERTISING -> BadgeColorWaiting to "⚪ 광고중"
-        OobStatus.CONNECTED -> BadgeColorRanging to "🔵 콘솔 연결됨"
+        OobStatus.ADVERTISING ->
+            BadgeColorWaiting to if (isScanner) "⚪ 스캔중" else "⚪ 광고중"
+        OobStatus.CONNECTED ->
+            BadgeColorRanging to if (isScanner) "🔵 광고 수신됨" else "🔵 콘솔 연결됨"
         OobStatus.UNAVAILABLE -> BadgeColorIdle to "OOB 비활성"
     }
     Box(
@@ -259,12 +276,17 @@ private fun OobBadge(status: OobStatus) {
     }
 }
 
-/** (C) 설정 입력 — 보드 MAC + Session ID, 레인징 중 비활성. 고정 파라미터 표기 (FR-4) */
+/** 3모드 전체 선택 가능 (SCANNER 는 T301 구현 후 2026-08-12 노출) */
+private val SelectableOobModes: List<OobMode> = OobMode.entries.toList()
+
+/** (C) 설정 입력 — 보드 MAC + Session ID + OOB 모드, 레인징 중 비활성. 고정 파라미터 표기 (FR-4) */
 @Composable
 private fun SessionInputs(
     uiState: UiState,
     onBoardMacChanged: (String) -> Unit,
     onSessionIdChanged: (String) -> Unit,
+    onOobModeChanged: (OobMode) -> Unit,
+    onToggleConsoleSim: () -> Unit,
 ) {
     val editable: Boolean = !uiState.isSessionActive
     Column(verticalArrangement = Arrangement.spacedBy(SectionSpacing)) {
@@ -290,11 +312,52 @@ private fun SessionInputs(
                 singleLine = true,
             )
         }
-        Text(
-            text = UwbDefaults.CONFIG_SUMMARY,
-            style = MaterialTheme.typography.bodySmall,
-            fontFamily = FontFamily.Monospace,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SectionSpacing),
+        ) {
+            OobModeSelector(
+                selected = uiState.oobMode,
+                enabled = editable, // 레인징 중 변경 금지 (사양서 규칙 0)
+                onModeSelected = onOobModeChanged,
+            )
+            Text(
+                text = UwbDefaults.CONFIG_SUMMARY,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.weight(1f),
+            )
+            // 검수 12 테스트 보조 — 이 폰을 "가짜 콘솔"(5F1D0003 송출)로. 상대 폰은 모드 3
+            TextButton(onClick = onToggleConsoleSim) {
+                Text(text = if (uiState.consoleSimActive) "시뮬 중지" else "콘솔시뮬")
+            }
+        }
+    }
+}
+
+/** OOB 모드 드롭다운 (spec 001, plan D3) — 콘솔과 짝 맞추는 화면에서 한눈에 보이게 */
+@Composable
+private fun OobModeSelector(
+    selected: OobMode,
+    enabled: Boolean,
+    onModeSelected: (OobMode) -> Unit,
+) {
+    var expanded: Boolean by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, enabled = enabled) {
+            Text(text = "OOB ${selected.label}")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            SelectableOobModes.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(text = mode.label) },
+                    onClick = {
+                        expanded = false
+                        onModeSelected(mode)
+                    },
+                )
+            }
+        }
     }
 }
 

@@ -15,6 +15,10 @@
     <!-- FR-14: API 31+ 런타임 권한. ADVERTISE는 위치 권한 불필요 -->
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- spec 001 모드 3 (SCANNER): 콘솔 광고 관찰용. 위치 추정 미사용 — 모드 3 선택 시에만 런타임 요청 (D5) -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
 
     <!-- NFR-3: 세션 유지용 FGS. connectedDevice 타입 전제 권한은 BLUETOOTH_*·UWB_RANGING으로 충족 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -24,7 +28,7 @@
 
     <application
         android:allowBackup="false"
-        android:label="UWB Controlee"
+        android:label="UWB Controlee v2"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
