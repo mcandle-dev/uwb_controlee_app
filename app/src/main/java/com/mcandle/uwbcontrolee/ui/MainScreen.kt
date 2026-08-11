@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mcandle.uwbcontrolee.MainViewModel
 import com.mcandle.uwbcontrolee.UiState
+import com.mcandle.uwbcontrolee.uwb.OobStatus
 import com.mcandle.uwbcontrolee.uwb.RangingState
 import com.mcandle.uwbcontrolee.uwb.UwbAvailability
 import com.mcandle.uwbcontrolee.uwb.UwbDefaults
@@ -77,6 +78,8 @@ fun MainScreen(
     onRequestPermission: () -> Unit,
     onOpenUwbSettings: () -> Unit,
     onOpenAppSettings: () -> Unit,
+    onStartRanging: () -> Unit,
+    onRequestBlePermissions: () -> Unit,
 ) {
     val uiState: UiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
@@ -96,8 +99,14 @@ fun MainScreen(
                 onOpenUwbSettings = onOpenUwbSettings,
                 onOpenAppSettings = onOpenAppSettings,
             )
+            BleOobBanner(
+                visible = uiState.blePermissionDenied,
+                onRequestBlePermissions = onRequestBlePermissions,
+                onOpenAppSettings = onOpenAppSettings,
+            )
             MyAddressCard(
                 myAddress = uiState.myAddress,
+                oobStatus = uiState.oobStatus,
                 onCopy = { address ->
                     coroutineScope.launch {
                         clipboard.setClipEntry(
@@ -115,7 +124,7 @@ fun MainScreen(
             )
             ControlSection(
                 uiState = uiState,
-                onStart = viewModel::startRanging,
+                onStart = onStartRanging,
                 onStop = viewModel::stopRanging,
             )
             MeasurementPanel(uiState = uiState, modifier = Modifier.weight(1f))
@@ -156,6 +165,23 @@ private fun AvailabilityBanner(
     }
 }
 
+/** BLE 권한 거부 안내 배너 (FR-14) — OOB만 비활성, UWB 수동 흐름은 계속 가능함을 명시 */
+@Composable
+private fun BleOobBanner(
+    visible: Boolean,
+    onRequestBlePermissions: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+) {
+    if (!visible) return
+    BannerCard(
+        color = BannerColorWarning,
+        message = "BLE 권한 거부 — 주소 자동 전달(OOB)만 비활성. 수동 입력은 계속 가능",
+    ) {
+        Button(onClick = onRequestBlePermissions) { Text(text = "권한 재요청") }
+        Button(onClick = onOpenAppSettings) { Text(text = "앱 설정") }
+    }
+}
+
 @Composable
 private fun BannerCard(
     color: Color,
@@ -177,10 +203,11 @@ private fun BannerCard(
     }
 }
 
-/** (B) 내 주소 카드 — 모노스페이스 큰 글씨, 탭=복사. 미발급이면 "--:--" (FR-3) */
+/** (B) 내 주소 카드 — 모노스페이스 큰 글씨, 탭=복사. 옆에 OOB 배지 (FR-3/FR-16) */
 @Composable
 private fun MyAddressCard(
     myAddress: String?,
+    oobStatus: OobStatus,
     onCopy: (String) -> Unit,
 ) {
     Card(
@@ -193,13 +220,42 @@ private fun MyAddressCard(
                 text = "내 UWB 주소 (탭=복사 → PC --dest-mac)",
                 style = MaterialTheme.typography.labelMedium,
             )
-            Text(
-                text = myAddress ?: "--:--",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 36.sp,
-                fontWeight = FontWeight.Bold,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(SectionSpacing),
+            ) {
+                Text(
+                    text = myAddress ?: "--:--",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                OobBadge(status = oobStatus)
+            }
         }
+    }
+}
+
+/** OOB 상태 소형 배지 (FR-16) — OFF면 아무것도 그리지 않음 (기존 화면과 동일) */
+@Composable
+private fun OobBadge(status: OobStatus) {
+    val badge: Pair<Color, String> = when (status) {
+        OobStatus.OFF -> return
+        OobStatus.ADVERTISING -> BadgeColorWaiting to "⚪ 광고중"
+        OobStatus.CONNECTED -> BadgeColorRanging to "🔵 콘솔 연결됨"
+        OobStatus.UNAVAILABLE -> BadgeColorIdle to "OOB 비활성"
+    }
+    Box(
+        modifier = Modifier
+            .background(color = badge.first, shape = RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    ) {
+        Text(
+            text = badge.second,
+            color = Color.White,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 

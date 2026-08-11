@@ -13,6 +13,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import com.mcandle.uwbcontrolee.ui.MainScreen
+import com.mcandle.uwbcontrolee.uwb.BLE_OOB_PERMISSIONS
+import com.mcandle.uwbcontrolee.uwb.hasBleOobPermissions
 
 /** 숨은 설정 액션 — 일부 기기에서 UWB 설정 화면 직행. 없으면 연결 설정으로 폴백 */
 private const val ACTION_UWB_SETTINGS: String = "android.settings.UWB_SETTINGS"
@@ -26,6 +28,12 @@ class MainActivity : ComponentActivity() {
             viewModel.onPermissionResult(granted)
         }
 
+    /** BLE OOB 권한 2종 동시 요청 (FR-14) — 결과는 모두 허용일 때만 granted */
+    private val blePermissionLauncher: ActivityResultLauncher<Array<String>> =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+            viewModel.onBlePermissionResult(results.values.all { it })
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -35,6 +43,8 @@ class MainActivity : ComponentActivity() {
                     onRequestPermission = ::requestRangingPermission,
                     onOpenUwbSettings = ::openUwbSettings,
                     onOpenAppSettings = ::openAppSettings,
+                    onStartRanging = ::startRangingWithOob,
+                    onRequestBlePermissions = ::requestBlePermissions,
                 )
             }
         }
@@ -48,6 +58,22 @@ class MainActivity : ComponentActivity() {
 
     private fun requestRangingPermission() {
         permissionLauncher.launch(Manifest.permission.UWB_RANGING)
+    }
+
+    /**
+     * Start = UWB 즉시 시작 + BLE 권한 없으면 그때 요청 (FR-14 "첫 진입 시").
+     * 허용 응답이 오면 ViewModel이 뒤늦게 OOB를 연다 — BLE가 UWB를 절대 막지 않음.
+     */
+    private fun startRangingWithOob() {
+        viewModel.startRanging()
+        val sessionStarted: Boolean = viewModel.uiState.value.isSessionActive
+        if (sessionStarted && !hasBleOobPermissions(this)) {
+            blePermissionLauncher.launch(BLE_OOB_PERMISSIONS)
+        }
+    }
+
+    private fun requestBlePermissions() {
+        blePermissionLauncher.launch(BLE_OOB_PERMISSIONS)
     }
 
     private fun openUwbSettings() {

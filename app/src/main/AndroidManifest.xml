@@ -5,7 +5,16 @@
         android:name="android.hardware.uwb"
         android:required="true" />
 
+    <!-- OOB(BLE)는 부가 경로 — BLE 미지원 기기에서도 설치·수동 흐름 가능해야 함 -->
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="false" />
+
     <uses-permission android:name="android.permission.UWB_RANGING" />
+
+    <!-- FR-14: API 31+ 런타임 권한. ADVERTISE는 위치 권한 불필요 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:allowBackup="false"

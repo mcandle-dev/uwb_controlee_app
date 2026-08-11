@@ -53,6 +53,18 @@ Qorvo DWM3001CDK 보드(UCI 펌웨어, **controller/initiator**)와 FiRa UWB 레
 RSSI on이 이미 기본값). 파라미터가 하나라도 어긋나면 에러 없이 **조용히 아무것도 안
 나온다** — 이것이 이 도메인 최대의 함정.
 
+## OOB 계약 (BLE — PC 콘솔과 바이트 단위로 일치해야 함, 마스터: `docs/oob/BLE_OOB_인터페이스_사양서.md`)
+| 항목 | 값 |
+|---|---|
+| Service UUID | `5F1D0001-9A8B-4C7D-B2E3-6F4A5D8C9B0A` |
+| OOB_INFO Characteristic UUID | `5F1D0002-9A8B-4C7D-B2E3-6F4A5D8C9B0A` |
+| OOB_INFO 속성 | Read + Notify (Write 없음) |
+| 페이로드 (7B 고정) | `protocol_version`(1B, uint8, v1=`0x01`) + `uwb_address`(2B, 화면 표시 순서 그대로 — 반전 없음) + `session_id`(4B, uint32 little-endian) |
+
+**주의:** `uwb_address`는 표시 문자열 순서 = 전송 순서(반전 금지). `session_id`는 리틀엔디언
+(42 = `2A 00 00 00`, ❌ `00 00 00 2A` 아님). OOB 상수는 `UwbDefaults.kt`와 위 사양서가 유일 기준 —
+이 표는 그 사본이며 불일치 시 사양서가 우선한다.
+
 ## 핵심 코드 흐름 (controlee)
 ```kotlin
 val uwbManager = UwbManager.createInstance(context)
@@ -91,6 +103,8 @@ rangingJob = scope.launch {
 4. Start / Stop 버튼 (controlee를 먼저 시작하고 PC에서 controller를 start하는 순서를 UI에 안내 문구로)
 5. 실시간 표시: 거리(cm), 각도(azimuth °, 없으면 'N/A'), 상태(대기/레인징/끊김)
 6. 로그 콘솔: 타임스탬프 + 이벤트(시작/정지/측정 n건마다 1줄/끊김/에러) — 스크롤 리스트
+7. **BLE OOB 자동 교환** (FR-11~16): OOB_INFO GATT 광고·Read/Notify로 주소·SessionID를 콘솔에 자동 전달.
+   기본은 수동 입력 유지, OOB는 부가 경로 — 실패해도 기존 수동 흐름 무영향
 
 ## 아키텍처 규칙
 - UI(Compose)는 `UwbRepository`(또는 ViewModel) 하나에만 의존. UWB API 호출을 Composable에 직접 쓰지 않는다.

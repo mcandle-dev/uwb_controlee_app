@@ -1,6 +1,7 @@
 package com.mcandle.uwbcontrolee.uwb
 
 import androidx.core.uwb.RangingParameters
+import java.util.UUID
 
 /**
  * UWB 세션 계약 기본값 — 보드(DWM3001CDK, UCI 펌웨어) 쪽과 바이트 단위로 일치해야 한다.
@@ -52,4 +53,43 @@ object UwbDefaults {
 
     /** 이벤트 로그 최대 줄 수 (NFR-5) */
     const val MAX_LOG_LINES: Int = 500
+
+    // ── OOB (BLE) 계약 — docs/oob/BLE_OOB_인터페이스_사양서.md §3~4 사본.
+    //    불일치 시 사양서가 유일 기준 (CLAUDE.md "OOB 계약" 참고) ──────────
+
+    /** GATT Service UUID (콘솔이 이 UUID로 필터 스캔) */
+    val OOB_SERVICE_UUID: UUID = UUID.fromString("5F1D0001-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
+
+    /** OOB_INFO Characteristic UUID — Read + Notify (Write 없음) */
+    val OOB_CHARACTERISTIC_UUID: UUID = UUID.fromString("5F1D0002-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
+
+    /** 광고 Local Name — 콘솔이 UUID 필터와 함께 참고 (사양서 §3) */
+    const val OOB_LOCAL_NAME: String = "UWB-OOB"
+
+    /** 페이로드 protocol_version (오프셋 0, 1B). v1 고정 */
+    const val OOB_PROTOCOL_VERSION: Byte = 0x01
+
+    /** OOB_INFO 페이로드 고정 길이 (사양서 §4) */
+    const val OOB_PAYLOAD_SIZE: Int = 7
+
+    /**
+     * OOB_INFO 페이로드(7B) 조립 (사양서 §4, 바이트 순서 최대 함정 주의):
+     *   offset 0   1B  protocol_version = 0x01
+     *   offset 1-2 2B  uwb_address — 화면 표시 순서 그대로, 반전 없음
+     *   offset 3-6 4B  session_id  — uint32 little-endian (42 → 2A 00 00 00)
+     */
+    fun buildOobPayload(uwbAddress: ByteArray, sessionId: Int): ByteArray {
+        require(uwbAddress.size == 2) {
+            "uwbAddress must be 2 bytes, got ${uwbAddress.size}"
+        }
+        return byteArrayOf(
+            OOB_PROTOCOL_VERSION,
+            uwbAddress[0],
+            uwbAddress[1],
+            (sessionId and 0xFF).toByte(),
+            ((sessionId ushr 8) and 0xFF).toByte(),
+            ((sessionId ushr 16) and 0xFF).toByte(),
+            ((sessionId ushr 24) and 0xFF).toByte(),
+        )
+    }
 }
