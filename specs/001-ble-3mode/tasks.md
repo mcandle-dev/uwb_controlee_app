@@ -98,6 +98,6 @@ plan.md 의 결정(D1~D6)을 실행 순서로 쪼갠 것. maker 는 `[maker-read
   5F1D0001 — 모드 2 동작 무변경), ViewModel 에 `consoleSimBeacon`(5F1D0003, 보드 MAC·SID
   입력값 payload) + "콘솔시뮬" 토글 버튼. UWB 세션·OOB 채널 수명과 독립. 계약 무변경
   (기존 사양서 §5-2 형식 그대로 송출). `test`+`assembleDebug`+`lint` green.
-- 2026-08-12 검수 준비 문서 — `docs/검수10-13_함수_호출_맵.md` 작성 (폰·콘솔 함수 호출 체인,
+- 2026-08-12 검수 준비 문서 — `docs/guide/검수10-13_함수_호출_맵.md` 작성 (폰·콘솔 함수 호출 체인,
   로그↔함수 매핑). 콘솔 spec 008 은 3모드 maker-ready + 사양서 v0.4 확정 확인 (읽기 전용).
   v0.4 사본이 이 리포 작업트리에 배치돼 있음 — 커밋 시 포함 예정 (P5).

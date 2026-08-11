@@ -15,7 +15,9 @@
 3. BLE OOB 인터페이스: `docs/oob/BLE_OOB_인터페이스_사양서.md` — **마스터는 콘솔 리포 `uwb-console-kotlin/docs/oob/`**, 여기는 사본. 개정 = 버전 업 + 양 리포 동시 커밋.
 4. 기능, 화면, 상태 머신, NFR, 검수 기준(v1): `docs/앱_기능_화면_요구사항정의서.md` — 신규 기능은 specs/ 가 기준
 5. 콘솔 세션 인수인계: `docs/handoff/`
-- UWB 파라미터 대조 기록: `docs/파라미터_대조_4단계.md` / 실물 보드 테스트 절차: `docs/5단계_보드_테스트_가이드.md` / 남은 작업: `docs/TODO.md`
+- UWB 파라미터 대조 기록: `docs/파라미터_대조_4단계.md` / 남은 작업: `docs/TODO.md`
+- **사람용 가이드는 `docs/guide/`** (계약 아님 — 학습·테스트 절차): 보드 테스트 가이드,
+  검수 함수 호출 맵, BLE 입문 가이드. 계약·참조 경로(`docs/oob/`·`docs/handoff/` 등)는 이동 금지.
 
 충돌 시 우선순위: constitution > 사양서(OOB)·`UwbDefaults.kt`(UWB 파라미터) > specs > 이 파일 > 요구사항정의서.
 

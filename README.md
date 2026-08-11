@@ -59,7 +59,11 @@ docs/
 ├── 앱_기능_화면_요구사항정의서.md      # FR-1~10·화면·상태머신·NFR·검수 기준 (ground truth)
 ├── 파라미터_대조_4단계.md             # sasodoma 리포와의 파라미터 쌍 대조표 (바이트 순서 함정 포함)
 ├── 작업일지_2026-07-04_구현1-4단계.md  # 구현 이력·검수 결과·미해결 리스크
-└── 5단계_보드_테스트_가이드.md         # 보드 확보 후 실물 테스트 절차·체크리스트 (전달용)
+├── oob/ · handoff/                    # BLE OOB 계약(사본)·세션 간 인수인계 (경로 고정 — 이동 금지)
+└── guide/                             # 사람용 가이드 (계약 아님)
+    ├── 5단계_보드_테스트_가이드.md     # 보드 확보 후 실물 테스트 절차·체크리스트 (전달용)
+    ├── 검수10-13_함수_호출_맵.md       # 3모드 검수용 폰·콘솔 함수 체인 + 로그↔소스 매핑
+    └── ble_dev_guide.md               # BLE OOB 3모드 입문 가이드 (mermaid 시퀀스·제약·iOS 차이)
 
 CLAUDE.md                              # 기술 계약(세션 파라미터)·아키텍처 규칙·함정 목록
 ```
@@ -140,7 +144,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 3. 보드 MAC에 `zz` 등 입력 → 빨간 안내문 + Start 비활성
 4. Start → WAITING 전환, Stop → IDLE 복귀, 로그 기록
 
-### 보드와 페어 테스트 — 요약 (상세·체크리스트: [`docs/5단계_보드_테스트_가이드.md`](docs/5단계_보드_테스트_가이드.md))
+### 보드와 페어 테스트 — 요약 (상세·체크리스트: [`docs/guide/5단계_보드_테스트_가이드.md`](docs/guide/5단계_보드_테스트_가이드.md))
 
 ```powershell
 # 사전: 보드에 sasodoma 리포 new_firmware/*.hex 플래시, new_python_script에 pip install
