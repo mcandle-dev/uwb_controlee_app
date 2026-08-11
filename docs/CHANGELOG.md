@@ -4,7 +4,47 @@
 > 상세 요구사항·검증 절차는 `앱_기능_화면_요구사항정의서.md`, `TODO.md`,
 > `5단계_보드_테스트_가이드.md` 참고.
 
+## 2026-08-12
+
+### BLE OOB 모드 3 (SCANNER 관찰 + 병행 송출) 구현 — spec 001 Phase 3 (maker-ready)
+
+- **T002 확정 (사람, 2026-08-12)** — 사양서 §2-1 = **병행 송출**. 마스터 사양서 개정(v0.4)은
+  콘솔 세션에 handoff 로 요청 (`docs/handoff/HANDOFF_T002_병행송출_확정.md`)
+- **`uwb/OobScanner.kt` 신설 (모드 3)** — 콘솔 ADV_INFO(`5F1D0003`) Service Data 스캔,
+  D6 캐시 필터(`OobScanFilter`) 적용, 실패 무전파 (P6). 수신 → 보드 MAC·Session ID 입력칸
+  자동 반영 → `OobBeacon` 병행 송출(§2-1) → UWB 시작. 미수신 30초 = 수동 입력값 폴백 (§7-14)
+- **`parseOobPayload`/`OobInfo`** — 빌더 역함수 파서를 `UwbDefaults.kt` 에 추가 (기존 빌더
+  무변경), JVM 테스트 `OobPayloadParseTest` 7건
+- **`BLUETOOTH_SCAN`(neverForLocation)** Manifest 추가 — 모드 3 선택 시에만 런타임 요청 (D5,
+  `bleOobPermissionsFor(mode)`)
+- 드롭다운에 SCANNER 노출, OOB 배지 모드별 표기 (스캔중/광고 수신됨 — §6-1 매핑)
+- **`specs/002-cold-wake` 신설** — "앱 미실행 상태에서 콘솔 비콘 수신 → 자동 레인징"
+  (사용자 확정: 콜드 웨이크 방식). 착수 게이트: 조정자 추출 승인(G1) + 001 실기기 검증(G2)
+- 검증: `gradlew test`·`assembleDebug`·`lint` green. **실물 페어 미검증 (P9)** — 검수 10~14 는
+  `[needs-device]`
+- **검수 14 사용자 통과 보고** (모드 2 광고 프레임/31B, nRF Connect)
+- **콘솔 광고 시뮬레이터 추가** (검수 12 테스트 보조) — "콘솔시뮬" 버튼으로 이 폰이 가짜
+  콘솔(`5F1D0003`, 보드 MAC·SID 입력값)이 됨. 같은 앱 2대로 모드 3 테스트 가능.
+  `OobBeacon` UUID 파라미터화(기본값 유지 — 모드 2 무변경), 계약 무변경
+
 ## 2026-08-11
+
+### BLE OOB 모드 2 (BEACON 송출) 구현 — spec 001 Phase 1·2 + 모드 선택 UI (maker-ready)
+
+- **`OobMode` enum + 영속화** — SharedPreferences `oob_mode`, 기본 ADVERTISE_GATT(검증된 v1
+  경로). 저장값 매핑은 순수 함수로 JVM 테스트 (`OobModeTest`)
+- **`uwb/OobBeacon.kt` 신설 (모드 2)** — OOB_INFO 7B 를 Service Data(`5F1D0001`) 광고로 송출.
+  GATT 없음, connectable=false, BALANCED. 광고 28B ≤ 31B (사양서 §5-1).
+  주소 재발급 시 광고 교체(§7-15 — Notify 대응물), 실패 무전파 (P6). `OobGattServer.kt` 0줄 변경 (D1)
+- **Start 시퀀스 모드 분기 (D2)** — 모드 1: 기존 "광고→Read 대기 30s→UWB" 유지 /
+  모드 2: 광고 + UWB 즉시 시작 / 모드 3: 미구현 폴백(수동 입력값, T301·§2-1 확정 대기)
+- **모드 선택 드롭다운** — 고정 파라미터 줄 옆, 레인징 중 비활성 (규칙 0). SCANNER 항목은 미노출
+- **모드 3 준비물 선반영** — `ADV_INFO_UUID`(`5F1D0003`)·`SCAN_WAIT_TIMEOUT_MS` 상수,
+  스캔 캐시 필터 순수 함수 `OobScanFilter`(§7-12) + JVM 테스트
+- **v2 병행 설치** — `applicationId` → `com.mcandle.uwbcontrolee.v2` (label "UWB Controlee v2",
+  versionName 2.0-dev). v1 설치본과 한 폰에 공존 — 페어 테스트용. 코드 패키지·계약 무변경
+- 검증: `gradlew test`·`assembleDebug`·`lint` green. **실물 페어 미검증 (P9)** —
+  사양서 검수 10~14 는 `[needs-device]` (tasks.md Phase 5)
 
 ### SDD 하네스 도입 + Phase 2 착수 (specs/001, 콘솔 세션이 이식)
 
