@@ -5,17 +5,41 @@ Qorvo DWM3001CDK 보드(UCI 펌웨어, **controller/initiator**)와 FiRa UWB 레
 **Android Galaxy용 controlee 앱**. Kotlin + Jetpack Compose + `androidx.core.uwb` 기반.
 상용 앱이 아닌 **초도 기능 검증(Bring-up Test) 도구** — 많은 기능보다 "빠른 기본 동작 확인"이 최우선.
 
-## Ground Truth 문서 (반드시 먼저 읽을 것)
-- `docs/앱_기능_화면_요구사항정의서.md` — 기능(FR-1~10)·화면 레이아웃·상태 머신·NFR·검수 기준.
-  아래 '기능 요구사항' 절은 요약본이며, 상세는 이 문서가 기준. 단 **세션 파라미터·기술
-  계약이 충돌하면 CLAUDE.md가 우선**한다.
-- `docs/oob/BLE_OOB_인터페이스_사양서.md` — BLE OOB 인터페이스 (UUID·페이로드의 마스터)
-- `docs/CHANGELOG.md` — 날짜별 변경 이력. **새 작업을 커밋할 때마다 맨 위에 항목 추가.**
-- `docs/TODO.md` — 남은 작업 / `docs/5단계_보드_테스트_가이드.md` — 실물 보드 테스트 절차
-- `AGENTS.md` — Codex용 지침 (이 문서와 같은 계약을 담음). **계약·규칙을 바꾸면 두 파일을 함께 갱신.**
+## 반드시 먼저 읽을 것 (순서대로 — 2026-08-11 SDD 체계 도입)
+1. `constitution.md` — **불변 원칙 (P1~P15). 모든 판단의 최상위.** 이 문서와 충돌하면 constitution 이 이긴다.
+2. 현재 작업 중인 `specs/NNN-*/` 의 `spec.md` → `plan.md` → `tasks.md`
+3. `docs/oob/BLE_OOB_인터페이스_사양서.md` — BLE OOB 계약 (**마스터는 콘솔 리포** `uwb-console-kotlin/docs/oob/`, 여기는 사본 — P5)
+4. `docs/앱_기능_화면_요구사항정의서.md` — v1 기능(FR-1~16)·화면·상태 머신. 신규 기능은 specs/ 가 기준
+5. `docs/handoff/` — 콘솔 세션과의 인수인계 문서
+- `AGENTS.md` — Codex용 지침. **계약·규칙을 바꾸면 두 파일을 함께 갱신.**
+
+## SDD 문서 3종 (spec → plan → tasks)
+
+feature 디렉터리(`specs/NNN-*/`)는 **항상 세 문서를 모두 갖는다.** 하나라도 없으면 코드 작성 전에 만든다.
+
+| 문서 | 답하는 질문 |
+|---|---|
+| `spec.md` | 무엇을·왜 — 범위, 계약 표, 수용 기준 |
+| `plan.md` | 어떻게 — 설계 결정(D1..), 영향 파일 표, 검증 전략, 리스크. **버린 대안과 이유를 남긴다** |
+| `tasks.md` | 순서 — 실행 태스크 + `## 기록` 절 |
+
+- 대화로 들어온 요청도 문서에 남긴다. 기존 spec 범위 안이면 해당 `tasks.md` `## 기록` 에 한 줄,
+  범위 밖이면 새 `specs/NNN-*/` 를 만든다. plan 없이 tasks 부터 쓰지 않는다.
+- 원칙과 충돌하면 constitution 개정(개정일 + 근거 spec 번호)이 코드보다 먼저다.
+- maker 는 태스크를 `[maker-ready]` 까지만, 실기기 필요 항목은 `[needs-device]` (P9/P11).
+
+## 푸시 전 체크리스트
+
+1. `docs/CHANGELOG.md` 갱신 (같은 날짜 절이 있으면 덧붙임)
+2. 해당 `specs/NNN-*/tasks.md` `## 기록` 에 태스크별 한 줄
+3. **OOB 계약을 건드렸으면** 사양서 버전 업 + 콘솔 리포 동시 반영 + 완성 SHA 통보 (P5/P13)
+4. `gradlew test` + `assembleDebug` (UI/매니페스트 변경 시 `lint` 추가)
 
 ## 배경 (이 문서가 존재하는 이유 — 이전 세션에서 확정된 사항)
-- 짝이 되는 PC 앱: `D:\dev\radar_test_console` (Flet 레이더 테스트 콘솔, 별도 프로젝트).
+- **짝이 되는 콘솔 앱 (Phase 2~): `D:\dev\mcandle\uwb-console-kotlin`** (Kotlin/Android 콘솔,
+  별도 세션이 담당 — 이 세션은 그 리포를 수정하지 않는다, P13). 리포·태그 규칙은 그쪽
+  `docs/repo_guide.md` 가 공동 원문이다. v1 짝 태그: `v1.0_controlee_advertise` ↔ `v1.0_controller_scanner`.
+- 이전 짝 PC 앱: `D:\dev\radar_test_console` (Python Flet — 동결, 참조 전용).
   그쪽 `docs/QA_2026-07-03_UCI_CLI_펌웨어와_Pixel_인터롭.md`에 조사 내용 전체가 있다.
 - 보드 펌웨어는 `DWM3001CDK-UCI-FreeRTOS.hex` (UCI 바이너리 프로토콜) **고정**.
   UCI 펌웨어는 스스로 동작하지 않으므로 PC의 UCI 호스트 스크립트가 보드를 구동한다.

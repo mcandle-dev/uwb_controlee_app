@@ -6,17 +6,20 @@
 
 상용 앱이 아니라 초도 기능 검증(Bring-up Test) 도구다. 기능 확장보다 빠르고 재현 가능한 기본 동작 확인을 우선한다.
 
-## 작업 전 확인할 기준 문서
+## 작업 전 확인할 기준 문서 (2026-08-11 SDD 체계 도입 — 순서대로)
 
-- 기능, 화면, 상태 머신, NFR, 검수 기준: `docs/앱_기능_화면_요구사항정의서.md`
-- BLE OOB 인터페이스: `docs/oob/BLE_OOB_인터페이스_사양서.md`
-- UWB 파라미터 대조 기록: `docs/파라미터_대조_4단계.md`
-- 실물 보드 테스트 절차: `docs/5단계_보드_테스트_가이드.md`
-- 남은 작업: `docs/TODO.md`
+1. `constitution.md` — 불변 원칙 (P1~P15). 모든 문서·판단의 최상위. 원칙과 충돌하는 변경은 constitution 개정(개정일 + 근거 spec 번호)이 코드보다 먼저다.
+2. 현재 작업 중인 `specs/NNN-*/` 의 `spec.md` → `plan.md` → `tasks.md`.
+   feature 는 항상 이 3종을 갖는다. plan 없이 tasks 부터 쓰지 않는다.
+   태스크 상태는 `[maker-ready]` 까지만 (done 금지 — 판정은 checker), 실기기 필요 항목은 `[needs-device]`.
+3. BLE OOB 인터페이스: `docs/oob/BLE_OOB_인터페이스_사양서.md` — **마스터는 콘솔 리포 `uwb-console-kotlin/docs/oob/`**, 여기는 사본. 개정 = 버전 업 + 양 리포 동시 커밋.
+4. 기능, 화면, 상태 머신, NFR, 검수 기준(v1): `docs/앱_기능_화면_요구사항정의서.md` — 신규 기능은 specs/ 가 기준
+5. 콘솔 세션 인수인계: `docs/handoff/`
+- UWB 파라미터 대조 기록: `docs/파라미터_대조_4단계.md` / 실물 보드 테스트 절차: `docs/5단계_보드_테스트_가이드.md` / 남은 작업: `docs/TODO.md`
 
-기능 요구사항은 요구사항정의서를 따른다. UWB 세션 파라미터와 기술 계약은 이 파일을 우선한다. OOB 상수와 페이로드 정의가 충돌하면 OOB 사양서와 `UwbDefaults.kt`를 기준으로 삼는다.
+충돌 시 우선순위: constitution > 사양서(OOB)·`UwbDefaults.kt`(UWB 파라미터) > specs > 이 파일 > 요구사항정의서.
 
-관련 PC 콘솔은 별도 저장소 `D:\dev\radar_test_console`에 있다. 현재 작업 범위가 이 Android 저장소라면 사용자의 명시적 요청 없이 다른 저장소를 수정하지 않는다.
+짝이 되는 콘솔 앱은 별도 저장소 `D:\dev\mcandle\uwb-console-kotlin`(Phase 2~, 별도 세션 담당)이다. 이전 짝 PC 콘솔 `D:\dev\radar_test_console`은 동결·참조 전용. 사용자의 명시적 요청 없이 다른 저장소를 수정하지 않는다. 교차 변경 요청은 `docs/handoff/` 문서로 주고받는다.
 
 ## 고정 기술 스택
 

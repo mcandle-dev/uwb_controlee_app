@@ -4,6 +4,22 @@
 > 상세 요구사항·검증 절차는 `앱_기능_화면_요구사항정의서.md`, `TODO.md`,
 > `5단계_보드_테스트_가이드.md` 참고.
 
+## 2026-08-11
+
+### SDD 하네스 도입 + Phase 2 착수 (specs/001, 콘솔 세션이 이식)
+
+- **`constitution.md` 제정 (P1~P15)** — CLAUDE.md/AGENTS.md 에 흩어져 있던 불변 원칙
+  (계층·바이트 계약·수명 규칙·검증 규율·리포/버전 규칙)을 승격. 충돌 시 constitution 이 이긴다
+- **`specs/001-ble-3mode/` 신설 (spec/plan/tasks)** — BLE OOB 3모드
+  (ADVERTISE-GATT 현행 / BEACON 송출 / SCANNER 관찰). plan D1: `OobGattServer` 무변경 +
+  모드별 클래스 신설, D2: Start 시퀀스 모드별 분기
+- **BLE OOB 사양서 v0.3 사본 수령** — 마스터가 콘솔 리포(`uwb-console-kotlin/docs/oob/`)로
+  이관됨. 3모드·광고 Service Data 규격·콘솔→폰 UUID `5F1D0003`. payload v1 7B 무변경
+- **`docs/handoff/HANDOFF_008_controlee_scanner.md` 수령** — 콘솔 세션의 인수인계
+  (계약 요점·구현 힌트·완료 절차·태그 위치 미결)
+- CLAUDE.md/AGENTS.md 읽기 순서·SDD 3종 규칙·푸시 전 체크리스트 반영.
+  Phase 2 짝 리포가 `radar_test_console`(동결) → `uwb-console-kotlin` 으로 교체됨을 명시
+
 ## 2026-07-25
 
 ### 재Start 시 OOB 연결 초기화 — 배지 CONNECTED 고착 + 30초 지연 수정 (유령 정리 후속)
