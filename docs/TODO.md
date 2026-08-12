@@ -71,23 +71,27 @@
 
 ---
 
-## C. 다음 스텝 — spec 002 콜드 웨이크 (문서만 있음, 코드 0줄)
+## C. 다음 스텝 — spec 002 콜드 웨이크 (모드 4 기반으로 전면 개정됨, 코드 0줄)
 
-목표: 앱 미실행 상태에서 콘솔 비콘(`5F1D0003`) 수신 → OS 가 앱을 깨움 → FGS → 모드 3
-자동 시퀀스. 상세: `specs/002-cold-wake/` (spec → plan → tasks).
+- [x] **G0 확정 (2026-08-12 사용자)**: **Android + iOS 모두 지원, 충돌 시 iOS 기준.**
+      → 교환 구조를 **모드 4 (GATT 역방향: 콘솔=peripheral, 폰=central+Read/Write)** 로
+      채택하고 spec/plan/tasks 전면 개정. 근거: `docs/guide/ble_dev_guide.md` §5~§7.
+      기존 모드 1~3 은 Android 브링업 경로로 존치.
 
-**착수 게이트 — 이것들이 풀리기 전 코드 금지:**
+목표: 앱 미실행 상태에서 콘솔의 connectable 광고 수신 → OS 가 앱을 깨움 → FGS →
+모드 4 자동 시퀀스 (Read 보드정보 / Write 폰주소). 상세: `specs/002-cold-wake/`.
 
-- [ ] **G0 `[human]` (신규, 2026-08-12)**: **iOS 지원 여부 결정** — iOS 를 범위에 넣으면
-      현행 002 설계(Android PendingIntent)가 성립하지 않고 **모드 4(GATT 역방향)** 기반
-      재설계가 필요하다. 근거·설계: `docs/guide/ble_dev_guide.md` **§5·§7**, 비교표는
-      같은 문서 **§8 FAQ Q12**. 코드가 0줄인 지금이 방향 전환 비용이 가장 싸므로 G1 보다 먼저.
-- [ ] **G1 `[human]`**: plan D2 승인 — 세션 조정 로직을 `MainViewModel` 에서
+**착수 게이트 — 이것들이 풀리기 전 모드 4 코드 금지:**
+
+- [ ] **T001 `[human/cross-repo]`**: **사양서 v0.5 개정** — 콘솔 세션에 개정 요청 전달
+      (`docs/handoff/HANDOFF_모드4_사양서개정_요청.md` — UUID·특성 제안 포함).
+      마스터가 콘솔 리포라 확정은 그쪽 몫 (P5/P13). **확정 전 모드 4 코드 착수 금지.**
+- [ ] **G1 `[human]`**: plan D4 승인 — 세션 조정 로직을 `MainViewModel` 에서
       `RangingCoordinator`(비-UI 싱글턴)로 추출하는 구조 변경. 승인 없이 착수 금지.
-- [ ] **G2 `[needs-device]`**: 위 A 절 검수 통과 (리팩터 회귀 기준선 — plan R3)
-- [ ] 게이트 해제 후 최우선: **T101 스파이크** — PendingIntent 스캔 + Receiver 에서 FGS
-      기동이 Galaxy 에서 실제 허용되는지 (콜드 웨이크 성립 조건, 문서상 가능하나 미검증).
-      불허로 판명되면 대기(Arm) 방식(상시 FGS)으로 spec 개정 후 재계획 (사용자 합의 있음).
+- [ ] **G2 `[needs-device]`**: 위 A 절 검수 통과 (리팩터 회귀 기준선 — plan R5)
+- G1·G2 만 풀리면 **Phase 1 (조정자 리팩터)** 는 T001 대기 중에도 착수 가능 (계약 무관)
+- Android 쪽 잔여 스파이크: **T304** — Receiver 에서 FGS 기동 허용 여부 (불허 시 Arm 후퇴)
+- iOS 앱 자체는 별도 리포 후속 (spec 002 T501) — 이 리포는 계약의 iOS 적합성만 보장
 - 착수 시 새 브랜치 `feature/002-cold-wake` (P12 — 이 브랜치에 002 코드를 넣지 말 것)
 
 ---

@@ -6,6 +6,19 @@
 
 ## 2026-08-12
 
+### G0 확정: Android+iOS 모두 지원 — spec 002 를 모드 4 기반으로 전면 개정
+
+- **G0 (사용자 확정)**: 최종 목표는 **Android + iOS 폰 모두 지원, 충돌 시 iOS 기준.**
+- **spec 002 (콜드 웨이크) 전면 개정** — 교환 구조를 모드 4(GATT 역방향: 콘솔=peripheral
+  광고 21B+GATT 서버, 폰=central Read/Write)로 채택. 이전 Android 전용 설계
+  (payload 광고 + PendingIntent)는 iOS 성립 불가로 폐기 (git 이력 보존).
+  모드 1~3 은 Android 브링업·회귀 경로로 존치 (plan D6)
+- **사양서 v0.5 개정 요청 handoff** (`docs/handoff/HANDOFF_모드4_사양서개정_요청.md`) —
+  콘솔 광고(UUID 목록·connectable)·BOARD_INFO(Read)/PHONE_INFO(Write) 특성·iOS 적합성 절
+  제안 포함. **확정 전 모드 4 코드 착수 금지 (P5)** — 그동안 가능한 것은 조정자 리팩터뿐
+- 가이드 §7 을 "제안"에서 "채택 — 개정 대기"로, FAQ Q12 를 결정 기록으로 갱신.
+  TODO C 절 게이트 재구성 (G0 완료, T001 신설)
+
 ### BLE OOB 모드 3 (SCANNER 관찰 + 병행 송출) 구현 — spec 001 Phase 3 (maker-ready)
 
 - **T002 확정 (사람, 2026-08-12)** — 사양서 §2-1 = **병행 송출**. 마스터 사양서 개정(v0.4)은

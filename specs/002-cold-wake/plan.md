@@ -1,66 +1,82 @@
-# 002 — 구현 계획 (plan)
+# 002 — 구현 계획 (plan) · 전면 개정 2026-08-12 (모드 4 기반)
+
+> 이전 판(Android PendingIntent + payload 광고)은 G0 확정(iOS 지원, 충돌 시 iOS 기준)으로
+> 폐기 — git 이력 참조. 폐기 근거: iOS 는 현 광고 포맷을 백그라운드에서 매치할 수 없고
+> (가이드 §5-3), payload 송출 자체가 불가(§6). **iOS 를 기준으로 맞춘다** 는 결정에 따라
+> 교환 구조를 모드 4 로 바꾼다.
 
 ## 설계 결정
 
-### D1. 등록 방식 = PendingIntent 스캔
+### D1. 교환 구조 = 모드 4 (GATT 역방향) — G0 로 확정
 
 | 방식 | 평가 |
 |---|---|
-| **(A) `BluetoothLeScanner.startScan(filters, settings, PendingIntent)`** ✅ | 프로세스가 죽어도 OS 가 스캔을 유지, 매치 시 명시적 브로드캐스트로 앱을 깨움. 콜드 웨이크의 유일한 표준 경로 |
-| (B) ScanCallback + 상시 FGS | 대기(Arm) 방식 — 콜드 웨이크가 아님. D3 실패 시 후퇴안으로 보존 |
-| (C) Companion Device Manager | 페어링 UX 강제 + 기기 제약 — 브링업 도구에 과함 (P14). 탈락 |
+| **(A) 모드 4: 콘솔=peripheral, 폰=central, Read/Write** ✅ | 광고는 발견 전용 21B(UUID 목록 포함 → iOS 백그라운드 필터 가능), 데이터는 GATT. 폰이 central 이라 iOS 의 송출 제약·overflow 문제 전부 회피. Android 도 HW UUID 필터로 단순해짐 |
+| (B) 이전 판: payload 광고 + PendingIntent | iOS 성립 불가 — G0 위반. 폐기 |
+| (C) 16비트 UUID 로 광고 개조 | iOS 백그라운드 매치는 되지만 송출(폰 주소)이 여전히 불가 + SIG 할당 문제. 탈락 |
 
-- ScanFilter 는 001 과 동일 (ServiceData `5F1D0003`, 빈 data 매치). SCAN_MODE_LOW_POWER
-  (상시 등록이므로 — 001 의 LOW_LATENCY 와 다른 이유를 명시).
+### D2. 계약 선행 — 사양서 v0.5 개정이 코드보다 먼저 (P5)
 
-### D2. 조정 로직 소유권 — ViewModel 에서 추출 (⚠ 착수 게이트)
+Write 특성 신설·콘솔 GATT 서버·connectable=true 는 전부 계약 변경이다.
+- 마스터는 콘솔 리포 → `docs/handoff/HANDOFF_모드4_사양서개정_요청.md` 로 개정 요청 (P13)
+- 확정 전 이 리포가 할 수 있는 것: 조정자 리팩터(Phase 1 — 계약 무관), JVM 테스트 정비
+- UUID·특성 상수는 확정 후 `UwbDefaults.kt` 에만 추가 (기존 D4 규칙 승계)
 
-현재 Start 시퀀스·워치독·OOB 수명은 전부 `MainViewModel` 소유다. 콜드 웨이크는 **Activity/
-ViewModel 없이** 이 시퀀스를 돌려야 하므로, 조정 로직을 프로세스 싱글턴(가칭
-`uwb/RangingCoordinator`)으로 추출하고 ViewModel·FGS 가 함께 구동하는 구조가 필요하다.
+### D3. 폰 쪽 채널 = `OobCentral` 신설 (기존 채널 0줄)
 
-- constitution P1/P2 는 "UI→ViewModel 단방향"을 규정할 뿐 조정자의 위치는 못박지 않았지만,
-  기존 관행(조정자=ViewModel)이 바뀐다 — **리팩터 규모가 크고 회귀 위험이 있어 사람 승인을
-  게이트로 둔다** (tasks G1). 추출은 동작 무변경 리팩터로 먼저, 콜드 웨이크 기능은 그 위에.
-- 버린 대안: FGS 가 ViewModel 을 흉내내 시퀀스 일부만 복제 — 두 곳에 같은 상태 머신이 생겨
-  P2(조정 단일)를 실질 위반. 탈락.
+`OobGattServer`(모드 1)·`OobBeacon`(모드 2)·`OobScanner`(모드 3)와 같은 계약을 복제:
+`open()/close()/status: StateFlow<OobStatus>` + 실패 무전파 (P6).
+scan → connect → discoverServices → BOARD_INFO Read → PHONE_INFO Write 를 내부 상태머신으로.
+`OobMode` enum 에 `CENTRAL` 추가 (storageValue 하위호환 규칙 동일).
 
-### D3. 웨이크 경로
+### D4. 조정 로직 추출 (`RangingCoordinator`) — G1 게이트 유지
+
+콜드 웨이크는 Activity 없이 시퀀스를 돌려야 하므로 이전 판의 D2 를 승계한다:
+Start 시퀀스·워치독·OOB 수명을 ViewModel 에서 프로세스 싱글턴으로 추출, ViewModel 은
+구독자로. **동작 무변경 리팩터로 먼저** 수행하고 기존 JVM 테스트 무수정 green (P10).
+버린 대안(FGS 가 시퀀스 일부 복제)의 탈락 사유도 승계 — 조정자 이중화는 P2 실질 위반.
+
+### D5. 콜드 웨이크 등록 경로
 
 ```
-콘솔 광고 → OS(PendingIntent 매치) → OobWakeReceiver(명시적 broadcast)
-  → startForegroundService(RangingForegroundService, ACTION_AUTO_START)
-  → FGS onStartCommand: startForeground() 즉시 → coordinator 로 모드 3 시퀀스
+Android: 토글 ON → PendingIntent 스캔 등록 (ScanFilter.setServiceUuid — HW 필터,
+         이전 판의 Service Data SW 필터 불필요) → Receiver → FGS(ACTION_AUTO_START)
+         → coordinator 가 모드 4 시퀀스
+iOS(후속 리포): 동일 계약 위에서 pending connect / State Restoration — 이 리포 범위 밖,
+         계약이 이를 막지 않는지만 spec 수용 5 로 검증
 ```
 
-- 근거: Android 12+ 백그라운드 FGS 시작 제한의 **예외 목록에 "BLUETOOTH_SCAN 권한이 필요한
-  Bluetooth 브로드캐스트 수신"이 포함** — PendingIntent 스캔 결과가 이에 해당하는지가 성립
-  조건. 문서상 가능하나 **Galaxy 실기기 확인 전에는 단정 금지** (P9) — T101 이 최우선.
-- 실패 시(ForegroundServiceStartNotAllowedException): 고우선 알림 폴백 (spec 수용 2).
+### D6. 모드 1~3 존치, 모드 4 는 추가
 
-### D4. 재발급 주소 문제는 병행 송출이 흡수
-
-콜드 스타트마다 controlee 스코프가 새로 발급돼 폰 주소가 매번 다르다 — §2-1 병행 송출(001
-T303)이 새 주소를 광고하므로 콘솔이 자동 확보. 002 에 추가 채널 불요.
+기존 모드는 Android 브링업·회귀 기준으로 유지한다 (spec 001 검수가 기준선 — G2).
+기본값도 ADVERTISE_GATT 유지. 모드 4 가 실기기에서 안정되면 기본값 전환을 **별도 결정**으로.
 
 ## 영향 범위 (예상)
 
 | 파일 | 변경 |
 |---|---|
-| `uwb/RangingCoordinator.kt` | **신규** — MainViewModel 에서 조정 로직 추출 (D2) |
-| `MainViewModel.kt` | 수정 — coordinator 위임(상태 구독자로 축소) |
-| `uwb/OobWakeReceiver.kt` | **신규** — PendingIntent 수신 → FGS 기동 (D3) |
-| `RangingForegroundService.kt` | 수정 — ACTION_AUTO_START 처리 (현재는 로직 없는 유지용) |
-| `ui/MainScreen.kt` | 수정 — 자동 감시 토글 |
-| `AndroidManifest.xml` | 수정 — receiver 등록 |
+| `uwb/RangingCoordinator.kt` | **신규** — 조정 로직 추출 (D4) |
+| `MainViewModel.kt` | 수정 — coordinator 위임 |
+| `uwb/OobCentral.kt` | **신규** — 모드 4 채널 (D3) |
+| `uwb/OobMode.kt` · `UwbDefaults.kt` | 수정 — CENTRAL 추가·v0.5 상수 (D2 확정 후) |
+| `uwb/OobWakeReceiver.kt` | **신규** — PendingIntent 수신 → FGS (D5) |
+| `RangingForegroundService.kt` | 수정 — ACTION_AUTO_START |
+| `ui/MainScreen.kt` | 수정 — 모드 4 항목·자동 감시 토글 |
+| 기존 OOB 채널 3종·payload 빌더/파서 | **0줄** |
 
 ## 검증 전략
 
-- 리팩터(D2)는 동작 무변경 — 기존 JVM 테스트 green + 모드 1~3 수동 흐름 회귀 없음으로 판정
-- 콜드 웨이크 성립(D3)·절전 생존은 전부 `[needs-device]` — JVM 으로 잡을 수 없다
+- JVM: coordinator 리팩터는 기존 테스트 무수정 green (P10), 모드 4 상태머신·payload 재사용 테스트
+- 실기기: 수용 1~4 `[needs-device]` — 콘솔 v0.5 구현과 합동
+- iOS 적합성: 코드가 아니라 **계약 문서 검증** (수용 5) — 폰 송출 광고 0건 확인
 
 ## 리스크
 
-- **R1.** FGS 백그라운드 시작 예외 불성립 → 대기(Arm) 방식 후퇴 (사용자 합의, spec 미해결)
-- **R2.** Galaxy 잠자는 앱이 PendingIntent 스캔/Receiver 를 막음 → 배터리 최적화 제외 안내 필수
-- **R3.** D2 리팩터 회귀 — 001 실기기 검증(검수 10~14)을 먼저 통과시켜 기준선을 만든 뒤 착수
+- **R1.** 콘솔 작업량 — GATT 서버는 콘솔에 신규 역할 (콘솔 세션 일정에 종속). 완화:
+  handoff 에 제안 계약을 상세히 실어 왕복을 줄인다
+- **R2.** Android FGS 백그라운드 시작 예외 미확인 (T304 스파이크). 불허 시 Arm 후퇴 (기존 합의)
+- **R3.** iOS 실검증 공백 — iOS 앱이 없는 동안 계약의 iOS 적합성은 문서 검증뿐 (P9).
+  iOS 리포 신설 시 첫 태스크 = 백그라운드 복원·UWB 스파이크
+- **R4.** iOS 구조적 한계는 남는다: 사용자 강제 종료 시 미복원·재부팅 후 1회 실행 필요 —
+  기능 축소가 아니라 **사용자 안내**로 종결 (가이드 §7-5)
+- **R5.** D4 리팩터 회귀 — G2(001 검수)로 기준선 확보 후 착수 (승계)
