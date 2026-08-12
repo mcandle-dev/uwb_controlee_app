@@ -281,6 +281,101 @@ controlee 앱을 iOS 로 포팅한다고 가정할 때 CoreBluetooth 의 차이�
    iOS 앱조차 포그라운드에서만 iBeacon 을 송출할 수 있다. 이 프로젝트의 BEACON 과는
    포맷·용도가 다르다.
 
+> 크로스 플랫폼 판단은 **§8 FAQ Q1~Q6** 에 결론·근거·대안까지 정리돼 있다.
+
+---
+
+## 8. FAQ — iOS 지원과 모드 선택 (자주 나오는 오해 포함)
+
+### Q1. "iPhone 은 가변 Service UUID 를 못 보내서 모드 2 가 안 된다" 가 맞나?
+
+**결론은 맞지만(모드 2 는 iOS 에서 성립 불가), 이유가 다르다.** 정확히는:
+
+| 흔한 설명 | 실제 |
+|---|---|
+| "iOS 는 **가변** Service UUID 를 못 보낸다" | ❌ 부정확. iOS 도 **임의의 128-bit UUID** 를 광고할 수 있고, 광고를 재시작하면 값을 바꿀 수도 있다 |
+| — | ✅ 진짜 제약: iOS 는 **Service Data(0x21)·Manufacturer Data(0xFF) 를 광고에 넣는 API 자체가 없다** |
+
+`CBPeripheralManager.startAdvertising(_:)` 이 인정하는 키는 **딱 2개**다:
+- `CBAdvertisementDataLocalNameKey` (기기 이름)
+- `CBAdvertisementDataServiceUUIDsKey` (Service UUID 목록)
+
+이 프로젝트의 모드 2 는 7B payload 를 **Service Data 에 실어** 보낸다
+(`OobBeacon.startAdvertising()` → `addServiceData(...)`). iOS 에는 그 그릇이 없으므로
+**payload 를 실을 자리가 없다** → 모드 2 는 iOS 에서 구현 불가.
+
+### Q2. 그러면 "모드 2 만 제외" 하면 iOS 를 지원할 수 있나?
+
+**아니다. 모드 3 도 반쪽만 된다.** 모드 3 에서 폰이 하는 일은 두 가지인데:
+
+| 모드 3 폰의 동작 | iOS 가능? | 이유 |
+|---|---|---|
+| 콘솔 광고(`5F1D0003`) **수신** → 보드 MAC·SID 자동 반영 | ✅ 가능 | 수신은 `CBAdvertisementDataServiceDataKey` 로 읽을 수 있다 |
+| 자신의 OOB_INFO **병행 송출**(`5F1D0001`, §2-1) | ❌ 불가 | 송출은 Q1 과 같은 제약 — Service Data 를 못 넣는다 |
+
+즉 iOS 에서 모드 3 을 쓰면 **콘솔이 폰 주소(DST_MAC)를 자동으로 얻을 길이 없다** →
+사양서 §7-14 의 "수동 DST_MAC 입력" 폴백이 상시 경로가 된다.
+정리하면 iOS 에서 **자동으로 폰 주소를 전달하는 커넥션리스 경로는 없다.**
+
+### Q3. 그럼 Android·iOS 를 모두 지원하려면 어떤 조합을 써야 하나?
+
+| 방안 | 평가 |
+|---|---|
+| **모드 1 (ADVERTISE-GATT) 을 크로스 플랫폼 기본 경로로** ✅ | GATT peripheral + Read/Notify 는 `CBPeripheralManager` 로 그대로 구현된다. **주소 자동 전달이 완전 동작하는 유일한 iOS 경로.** 현재 기본값이 모드 1 인 설계가 여기서도 맞다 |
+| 모드 3 + 폰 주소 수동 입력 | 보드 MAC·SID 자동 반영만 챙기고 DST_MAC 은 사람이 입력. 동작은 하나 "완전 자동" 은 아니다 |
+| 모드 2 를 iOS 용으로 개조 | Q5 참조 — 사양서 개정이 선행돼야 하고 제약이 많다. 권장하지 않음 |
+
+**따라서 사용자 지적의 실무 결론은 유효하다: "커넥션리스 송출(모드 2, 모드 3 병행 송출)은
+iOS 를 지원 대상에 넣는 순간 계약에서 빠져야 한다."** 다만 빠지는 범위가 모드 2 하나가
+아니라 **"폰이 payload 를 송출하는 모든 경로"** 라는 점이 핵심이다.
+
+### Q4. "가변 데이터를 안 쓰면" iOS 도 비콘 모드가 되나?
+
+**되지 않는다 — 가변/고정의 문제가 아니라 그릇의 문제다.** 값이 고정이든 가변이든
+Service Data 자체를 못 넣는다. 다만 **payload 를 아예 안 보내고 "존재만 알리는" 용도**라면
+iOS 도 Service UUID 광고로 가능하다 (예: "여기 OOB 폰이 있다" → 콘솔이 GATT 로 연결해
+읽어가는 모드 1 흐름). 즉 iOS 에서 커넥션리스로 할 수 있는 건 **발견(discovery)까지**이고,
+**데이터 전달은 연결(GATT)이 필요하다.**
+
+### Q5. UUID 안에 payload 를 심는 우회는 가능한가?
+
+기술적으로는 가능하다. 128-bit UUID = 16B 이므로 7B payload 를 UUID 일부에 인코딩해
+iOS 가 그 UUID 를 광고하면 된다. 수신측(Android)은 `ScanFilter` 의 **UUID + mask** 로
+접두부만 매칭할 수 있다. 그러나 채택하지 않는다:
+
+- **사양서 개정이 선행**돼야 한다 (P5 — UUID 는 현재 "방향 식별자" 이지 데이터 그릇이 아니다)
+- 주소가 바뀔 때마다 광고 UUID 가 바뀌어 **UUID = 신원** 이라는 BLE 관례가 깨진다
+- iOS 백그라운드에서는 Service UUID 가 **overflow 영역**으로 밀려 **iOS 기기끼리만** 발견된다
+  (Android 콘솔은 못 본다) — 백그라운드 시나리오(spec 002)와 정면 충돌
+- 양 리포 동시 개정 + 콘솔 pin bump 가 따라오는 크로스 리포 절차 (P13)
+
+### Q6. 콘솔(송출측)이 iOS 이면?
+
+이 프로젝트의 콘솔은 Android 앱(`uwb-console-kotlin`)이라 해당 없다. 가정한다면
+콘솔 ADVERTISE 모드(`5F1D0003` + 보드 MAC·SID 송출)도 같은 제약으로 불가능하고,
+**모드 3 자체가 성립하지 않는다.**
+
+### Q7. 그럼 iOS 는 스캔(수신)은 자유로운가?
+
+수신은 대체로 가능하지만 Android 와 다른 점이 있다:
+- `scanForPeripherals(withServices:)` 는 광고의 **Service UUID 목록** 기준으로 거른다.
+  우리 모드 2·3 광고에는 31B 예산 때문에 UUID 목록 AD 가 없으므로(§1-3),
+  **필터 nil 스캔 후 `CBAdvertisementDataServiceDataKey` 를 직접 확인**해야 할 수 있다.
+- 그런데 **백그라운드에서는 필터 nil 스캔이 금지**된다(UUID 명시 필수) →
+  백그라운드 수신은 사실상 불가. 포그라운드 전용으로 봐야 한다.
+
+### Q8. 이 결론이 spec/계약에 어떻게 반영돼야 하나?
+
+현재 사양서 v0.4 는 **Android 양단 전제**로 쓰여 있고, iOS 지원은 범위 밖이다.
+iOS controlee 를 실제로 추진한다면:
+
+1. 새 spec 을 세운다 (예: `specs/00N-ios-controlee`) — 이 문서 Q1~Q5 가 입력 자료
+2. 사양서에 **"모드별 플랫폼 지원 매트릭스"** 절을 신설 (버전 업 + 양 리포 동시 커밋 — P5)
+3. iOS 기본 경로 = 모드 1 로 명시, 모드 2·3 은 "Android 전용" 으로 표기
+
+⚠ 위 iOS 서술은 **CoreBluetooth 문서상 제약**에 근거한 것이며, 이 프로젝트에서 iOS
+실기기로 검증한 바 없다 (P9). iOS 착수 시 첫 태스크는 실기기 스파이크여야 한다.
+
 ---
 
 ## 6. 제약사항 총정리 (치트시트)
@@ -298,7 +393,7 @@ controlee 앱을 iOS 로 포팅한다고 가정할 때 CoreBluetooth 의 차이�
 | 9 | 짝 불일치 = 조용한 "발견 못함" | 전부 | 오류 아님 — 타임아웃 후 모드 확인 안내 (§7-11) |
 | 10 | BLE 실패가 UWB 를 막으면 안 됨 | 전부 | 예외 무전파 + UNAVAILABLE (P6, `becomeUnavailable` 패턴) |
 | 11 | Galaxy 절전/백그라운드 | 전부 | FGS 유지 (NFR-3), 장시간 테스트는 배터리 최적화 제외 |
-| 12 | iOS 는 Service Data 송출 불가 | 2, 3(병행) | 크로스 플랫폼 시 모드 1 이 기본 경로 (§5 참조) |
+| 12 | **iOS 는 Service Data 송출 불가** — 폰이 payload 를 송출하는 모든 경로가 막힘 | 2, 3(병행 송출) | 크로스 플랫폼 시 모드 1 이 기본 경로 (§5·§8 FAQ) |
 
 ## 7. 용어집
 
