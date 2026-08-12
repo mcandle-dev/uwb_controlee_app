@@ -40,6 +40,15 @@
 
 ## 미해결 / 전제 리스크 (plan 참조)
 
+- **⚠ 방향 재검토 대기 (2026-08-12 논의)**: iOS 를 지원 범위에 넣으면 이 spec 의 전제
+  (Android PendingIntent 스캔)가 성립하지 않는다 — iOS 는 현재 광고 포맷(Service UUID 목록
+  AD 부재)으로 백그라운드 매치가 불가능하고, 폰이 payload 를 송출할 수도 없다.
+  대안으로 **모드 4(GATT 역방향: 콘솔=peripheral, 폰=central+Write)** 가 도출됐고,
+  채택하면 Android·iOS 를 한 경로로 통합할 수 있다 (계약 변경 수반 — P5/P13).
+  근거·설계·바이트 계산: `docs/guide/ble_dev_guide.md` **§5·§7**.
+  **아직 결정되지 않았다** — 코드 0줄인 지금이 방향을 바꾸기에 가장 싼 시점이므로,
+  G1 승인 전에 "iOS 지원 여부"를 먼저 정한다.
+
 - **백그라운드 FGS 시작 예외**(BLUETOOTH_SCAN 결과 수신 시 허용— Android 12+ 예외 목록)가
   Galaxy 에서 실제로 적용되는지 — 콜드 웨이크의 성립 조건. `[needs-device]` 로 최우선 확인.
   불성립 시 대기(Arm) 방식(상시 FGS)으로 후퇴한다 (사용자 합의).

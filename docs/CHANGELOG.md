@@ -25,6 +25,20 @@
 - **`docs/guide/` 신설** — 사람용 가이드(계약 아님) 분리: 보드 테스트 가이드·검수 함수 호출
   맵 이동 + **BLE 3모드 입문 가이드(`ble_dev_guide.md`) 신규** (mermaid 시퀀스 3종, 모드별
   제약, iOS 차이 — 모드 2 는 iOS 성립 불가). 계약 경로(`oob/`·`handoff/` 등)는 이동 금지
+- **가이드 §5·§7 신설 + 섹션 번호 복구** — FAQ 삽입으로 깨졌던 순서(1,2,3,4,5,8,6,7)를
+  §1~§10 으로 정리하고 읽는 순서 표 추가. **§5 백그라운드·콜드 웨이크**(Android
+  PendingIntent 스캔의 오해 3가지·FGS 가 진짜 관문 / iOS State Restoration 차이 /
+  **iOS 는 현 광고 포맷으로 콜드 웨이크 불가** — UUID 목록 AD 부재 + 백그라운드 nil 스캔 금지),
+  **§7 모드 4 제안**(GATT 역방향: 콘솔=peripheral·폰=central+Write, 발견 전용 광고 21B,
+  iOS pending connect, 채택 시 계약 변경 항목) — **미채택·계약 미변경**. FAQ Q9~Q12 추가
+- **README 최신화** — v1 OOB 도입 이전 상태였던 내용을 현행화: **잘못된 스코프 금지 목록
+  수정**("BLE OOB 자동 교환·백그라운드 레인징" — 둘 다 구현 완료), 소스 구조에 `Oob*.kt`·
+  FGS 추가, 화면 구성에 OOB 배지·모드 드롭다운 반영, **BLE OOB 3모드 절 신설**,
+  ground truth 우선순위에 constitution·specs 반영, v1/v2 동시 설치·짝 리포
+  (`uwb-console-kotlin`)·진행 상태(2026-07-17 E2E 성공, Phase 2 진행 중) 갱신
+- **spec 002 방향 재검토 항목 추가** — iOS 지원 시 현행 설계(Android PendingIntent)가
+  성립하지 않으므로 모드 4 기반 재설계 검토 필요. `docs/TODO.md` 에 **게이트 G0(iOS 지원
+  여부 결정)** 을 G1 앞에 신설 — 코드 0줄인 지금이 방향 전환 비용이 가장 싸다
 - **가이드에 §8 FAQ 추가 (iOS 지원·모드 선택)** — 사용자 지적 검토 결과: iOS 제약은
   "가변 Service UUID" 가 아니라 **Service Data/Manufacturer Data 송출 API 부재**가 원인이며,
   제외 대상은 모드 2 뿐 아니라 **모드 3 병행 송출까지** (폰이 payload 를 송출하는 모든 경로).

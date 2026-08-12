@@ -180,9 +180,15 @@ Start 시 띄우고, 사용자 Stop/onCleared에서 내린다. **FGS 수명 = OO
 - 상태 및 세션 조정(Start 시퀀스·워치독·OOB 수명): `app/src/main/java/com/mcandle/uwbcontrolee/MainViewModel.kt`
 - 백그라운드 유지 FGS: `app/src/main/java/com/mcandle/uwbcontrolee/RangingForegroundService.kt`
 - UWB API 경계: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbRepository.kt`
-- 세션/OOB 상수: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbDefaults.kt`
-- BLE GATT 서버: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobGattServer.kt`
-- OOB 단위 테스트: `app/src/test/java/com/mcandle/uwbcontrolee/uwb/OobPayloadTest.kt`
+- 세션/OOB 상수 + payload 빌더/파서: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/UwbDefaults.kt`
+- BLE GATT 서버 (모드 1): `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobGattServer.kt`
+- OOB 모드 enum·영속화 매핑: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobMode.kt`
+- BEACON 송출 (모드 2 + 모드 3 병행 송출 겸용): `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobBeacon.kt`
+- SCANNER 관찰 (모드 3) + 모드별 BLE 권한 헬퍼: `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobScanner.kt`
+- 스캔 수신 판정 순수 함수 (모드 3): `app/src/main/java/com/mcandle/uwbcontrolee/uwb/OobScanFilter.kt`
+- OOB 단위 테스트: `app/src/test/java/com/mcandle/uwbcontrolee/uwb/` (`OobPayloadTest`,
+  `OobPayloadParseTest`, `OobModeTest`, `OobScanFilterTest`)
+- 사람용 가이드(계약 아님): `docs/guide/` — BLE 입문 가이드·3모드 시퀀스·검수 함수 호출 맵
 
 ## 구현 순서 (한 단계씩, 각 단계 끝에서 멈춰 사용자 확인)
 1. 프로젝트 스캐폴드 + 매니페스트/권한/가용성 체크 화면 (UWB 없는 기기에서도 안내가 뜨는지)

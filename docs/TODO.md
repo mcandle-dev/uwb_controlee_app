@@ -76,8 +76,12 @@
 목표: 앱 미실행 상태에서 콘솔 비콘(`5F1D0003`) 수신 → OS 가 앱을 깨움 → FGS → 모드 3
 자동 시퀀스. 상세: `specs/002-cold-wake/` (spec → plan → tasks).
 
-**착수 게이트 — 이 둘이 풀리기 전 코드 금지:**
+**착수 게이트 — 이것들이 풀리기 전 코드 금지:**
 
+- [ ] **G0 `[human]` (신규, 2026-08-12)**: **iOS 지원 여부 결정** — iOS 를 범위에 넣으면
+      현행 002 설계(Android PendingIntent)가 성립하지 않고 **모드 4(GATT 역방향)** 기반
+      재설계가 필요하다. 근거·설계: `docs/guide/ble_dev_guide.md` **§5·§7**, 비교표는
+      같은 문서 **§8 FAQ Q12**. 코드가 0줄인 지금이 방향 전환 비용이 가장 싸므로 G1 보다 먼저.
 - [ ] **G1 `[human]`**: plan D2 승인 — 세션 조정 로직을 `MainViewModel` 에서
       `RangingCoordinator`(비-UI 싱글턴)로 추출하는 구조 변경. 승인 없이 착수 금지.
 - [ ] **G2 `[needs-device]`**: 위 A 절 검수 통과 (리팩터 회귀 기준선 — plan R3)
