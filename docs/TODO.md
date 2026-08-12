@@ -83,13 +83,15 @@
 
 **착수 게이트 — 이것들이 풀리기 전 모드 4 코드 금지:**
 
-- [ ] **T001 `[human/cross-repo]`**: **사양서 v0.5 개정** — 콘솔 세션에 개정 요청 전달
-      (`docs/handoff/HANDOFF_모드4_사양서개정_요청.md` — UUID·특성 제안 포함).
-      마스터가 콘솔 리포라 확정은 그쪽 몫 (P5/P13). **확정 전 모드 4 코드 착수 금지.**
-- [ ] **G1 `[human]`**: plan D4 승인 — 세션 조정 로직을 `MainViewModel` 에서
-      `RangingCoordinator`(비-UI 싱글턴)로 추출하는 구조 변경. 승인 없이 착수 금지.
-- [ ] **G2 `[needs-device]`**: 위 A 절 검수 통과 (리팩터 회귀 기준선 — plan R5)
-- G1·G2 만 풀리면 **Phase 1 (조정자 리팩터)** 는 T001 대기 중에도 착수 가능 (계약 무관)
+- [ ] **T001 `[human/cross-repo]`**: **사양서 v0.5 개정** — 개정 요청 handoff 를 콘솔 리포
+      작업트리에 배치 완료 (2026-08-12, `uwb-console-kotlin/docs/handoff/` — 콘솔 세션이
+      수령·커밋 예정). 확정본 회신 대기. **확정 전 모드 4 코드 착수 금지 (P5/P13).**
+- [x] **G1 `[human]`**: 조정자 추출 승인 (2026-08-12 사용자) → **Phase 1 리팩터
+      [maker-ready]** — `uwb/RangingCoordinator.kt` 신설, MainViewModel 은 위임층으로 축소
+      (동작 무변경 — T102 실기기 회귀 확인 남음)
+- [ ] **G2 `[needs-device]`**: 위 A 절 검수 통과 (리팩터 회귀 기준선 — plan R5).
+      **T102(모드 1~3 회귀)를 A 절 검수와 같은 세션에서 함께 확인 권장** — 리팩터 후
+      빌드로 검수하면 한 번에 끝난다
 - Android 쪽 잔여 스파이크: **T304** — Receiver 에서 FGS 기동 허용 여부 (불허 시 Arm 후퇴)
 - iOS 앱 자체는 별도 리포 후속 (spec 002 T501) — 이 리포는 계약의 iOS 적합성만 보장
 - 착수 시 새 브랜치 `feature/002-cold-wake` (P12 — 이 브랜치에 002 코드를 넣지 말 것)

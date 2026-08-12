@@ -9,7 +9,7 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 - [ ] T001 `[human/cross-repo]` **사양서 v0.5 개정** — 콘솔 세션에
       `docs/handoff/HANDOFF_모드4_사양서개정_요청.md` 전달, 개정본(양 리포 사본) 수령.
       **확정 전 모드 4 코드(T2xx 이후) 착수 금지 (P5)**
-- [ ] T002 `[human]` G1 — 조정 로직 `RangingCoordinator` 추출 승인 (plan D4)
+- [x] T002 `[human]` G1 — 조정 로직 `RangingCoordinator` 추출 **승인** (2026-08-12 사용자)
 - [ ] T003 `[needs-device]` G2 — spec 001 실기기 검수 10~13 통과 (리팩터 기준선, plan R5)
 
 ## Phase 1 — 조정자 리팩터 (계약 무관 — T001 대기 중에도 G1·G2 후 착수 가능)
@@ -58,3 +58,13 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 - 2026-08-12 **G0 확정 (사용자)** — Android+iOS 모두 지원, 충돌 시 iOS 기준. 모드 4 채택.
   spec/plan/tasks 전면 개정 (이전 Android 전용 설계는 git 이력). 사양서 v0.5 개정 요청
   handoff 작성·전달 (T001). 모드 1~3 은 Android 브링업 경로로 존치 (plan D6).
+- 2026-08-12 T001 진행 — handoff 사본을 콘솔 리포 작업트리(`uwb-console-kotlin/docs/handoff/`)에
+  배치 (미커밋 — 콘솔 세션이 수령·커밋, 기존 관례의 역방향). **G1 승인 (사용자)** — Phase 1
+  을 G2(001 검수)와 병행 착수.
+- 2026-08-12 T101 [maker-ready] — `uwb/RangingCoordinator.kt` 신설: MainViewModel 의 조정
+  로직(Start 분기·워치독·OOB 수명·시뮬레이터·영속화) 전량을 동작 무변경으로 이식.
+  viewModelScope→자체 Main.immediate scope, getApplication()→appContext 치환 외 문장 동일.
+  프로세스 싱글턴(get/peek — T302 의 FGS 진입점 예비), shutdown = 기존 onCleared 동일 정리
+  +싱글턴 해제. MainViewModel 은 UiState 선언 + 위임 메서드 10개로 축소 — ui/·Activity
+  무변경, androidx.core.uwb import 가 root 패키지에서 사라져 P1 정합 개선.
+  기존 JVM 테스트 무수정 (P10).

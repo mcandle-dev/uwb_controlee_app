@@ -6,6 +6,19 @@
 
 ## 2026-08-12
 
+### spec 002 Phase 1 — 세션 조정자 추출 (RangingCoordinator, 동작 무변경)
+
+- **G1 승인 (사용자)** 에 따라 `MainViewModel` 의 조정 로직 전량(Start 시퀀스 모드 분기·
+  워치독·OOB 수명·콘솔 시뮬레이터·모드 영속화)을 `uwb/RangingCoordinator.kt` 로 이식.
+  콜드 웨이크(T302)에서 FGS 가 Activity 없이 시퀀스를 돌리기 위한 선행 구조 (plan D4)
+- 프로세스 싱글턴(`get`/`peek`) — 현재는 ViewModel 이 수명을 그대로 소유(onCleared →
+  `shutdown()`)해 v1 과 동작 동일. `peek()` 는 T302 의 FGS 진입점 예비
+- `MainViewModel` 은 UiState 선언 + 위임 메서드로 축소 — `ui/`·`MainActivity` 무변경,
+  root 패키지에서 `androidx.core.uwb` import 가 사라져 P1 정합 개선
+- **T001 (사양서 v0.5) 진행** — 개정 요청 handoff 사본을 콘솔 리포 작업트리에 배치
+  (미커밋 — 콘솔 세션 수령·커밋 예정). 확정 전 모드 4 코드 착수 금지 유지
+- 검증: 기존 JVM 테스트 무수정 (P10). **실기기 회귀(T102)는 A 절 검수와 병행 확인 예정 (P9)**
+
 ### G0 확정: Android+iOS 모두 지원 — spec 002 를 모드 4 기반으로 전면 개정
 
 - **G0 (사용자 확정)**: 최종 목표는 **Android + iOS 폰 모두 지원, 충돌 시 iOS 기준.**
