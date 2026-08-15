@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -119,7 +120,23 @@ class MainActivity : ComponentActivity() {
             )
             return
         }
+        // 콜드 웨이크 성립 조건 (P8 예외, T304 실측): 배터리 최적화 제외 — 켤 때 허용 요청
+        if (enabling) requestBatteryExemptionIfNeeded()
         viewModel.toggleAutoWatch()
+    }
+
+    /** 배터리 최적화 제외 요청 — 이미 제외돼 있으면 무동작. 거부돼도 토글은 진행 (로그로 안내) */
+    private fun requestBatteryExemptionIfNeeded() {
+        val powerManager: PowerManager = getSystemService(PowerManager::class.java)
+        if (powerManager.isIgnoringBatteryOptimizations(packageName)) return
+        runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.fromParts("package", packageName, null),
+                ),
+            )
+        }
     }
 
     /**

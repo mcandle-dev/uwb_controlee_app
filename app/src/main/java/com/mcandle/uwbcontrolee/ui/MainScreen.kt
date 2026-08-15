@@ -401,7 +401,8 @@ private fun ControlSection(
                     onCheckedChange = { onToggleAutoWatch() },
                 )
                 Text(
-                    text = "자동 감시 — 앱을 닫아도 콘솔 발견 시 자동 시작 (재부팅 시 재설정)",
+                    text = "자동 감시 — 앱을 닫아도 콘솔 발견 시 자동 시작 " +
+                        "(배터리 최적화 '제한 없음' 필수 · 재부팅 시 재설정)",
                     style = MaterialTheme.typography.bodySmall,
                 )
             }

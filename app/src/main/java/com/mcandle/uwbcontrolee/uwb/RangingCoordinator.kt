@@ -2,6 +2,7 @@ package com.mcandle.uwbcontrolee.uwb
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.os.PowerManager
 import androidx.core.uwb.RangingResult
 import androidx.core.uwb.UwbAddress
 import androidx.lifecycle.Lifecycle
@@ -236,6 +237,15 @@ class RangingCoordinator private constructor(private val appContext: Context) {
                 return
             }
             appendLog("자동 감시 ON — 콘솔 발견 시 백그라운드에서 자동 시작 (재부팅하면 다시 켜야 함)")
+            // 콜드 웨이크 성립 조건 (P8 예외, T304 실측 2026-08-16): 배터리 최적화 제외 필수
+            val powerManager: PowerManager? =
+                appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            if (powerManager?.isIgnoringBatteryOptimizations(appContext.packageName) != true) {
+                appendLog(
+                    "⚠ 배터리 최적화 '제한 없음' 설정이 필요합니다 — 없으면 웨이크 시 자동 시작이 " +
+                        "거부되고 알림만 뜹니다 (허용 대화상자 또는 설정 > 앱 > 배터리)",
+                )
+            }
         } else {
             OobWakeScan.unregister(appContext)
             appendLog("자동 감시 OFF — 웨이크 등록 해제")
@@ -720,8 +730,11 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         rangingJob = null
         watchdogJob?.cancel()
         watchdogJob = null
-        val keepOob: Boolean =
-            finalState == RangingState.ERROR || finalState == RangingState.DISCONNECTED
+        // 모드 4 는 자동 실패라도 유지하지 않는다 (P7 예외, 2026-08-16 개정 — spec 002):
+        // 재발급 전달은 세션 중 재Write 가, 종료 후 재교환은 웨이크가 대체한다. 유지하면
+        // 콘솔 재광고에 조용히 재연결돼 "폰 세션 없음 + 콘솔 트리거" 반쪽 상태가 된다 (실기기 확인).
+        val keepOob: Boolean = _uiState.value.oobMode != OobMode.CENTRAL &&
+            (finalState == RangingState.ERROR || finalState == RangingState.DISCONNECTED)
         if (keepOob) {
             // FGS도 함께 유지 — 백그라운드에서 실패해도 채널·프로세스가 살아 있어
             // 재발급 주소가 콘솔에 닿는다 (모드 1=Notify, 모드 2=광고 교체, 모드 4=재Write — P7).

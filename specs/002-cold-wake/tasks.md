@@ -35,13 +35,12 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 - [ ] T301 `[maker-ready]` 자동 감시 토글 + PendingIntent 스캔 등록/해제 (`setServiceUuid` HW 필터 — D5)
 - [ ] T302 `[maker-ready]` `OobWakeReceiver` → FGS `ACTION_AUTO_START` → coordinator 모드 4 자동 시퀀스
 - [ ] T303 `[maker-ready]` FGS 기동 실패 폴백 — 고우선 알림, 탭 시 포그라운드 Start (수용 3)
-- [ ] T304 `[needs-device]` FGS 백그라운드 시작 예외 스파이크 (불허 시 Arm 후퇴 — R2) +
-      배터리 최적화 제외 안내 — **1차 결과 (2026-08-16 사용자)**: OS 웨이크→리시버 콜드
-      스타트 **성공**, FGS 기동 **거부**(ForegroundServiceStartNotAllowedException — PendingIntent
-      스캔 결과는 시스템 블루투스 브로드캐스트 예외에 미해당 판정), **T303 폴백 알림 정상
-      동작 확인**. 2차 재시험 지시: 배터리 최적화 "제한 없음" 설정 후 반복 (power-save
-      exemption 은 예외 목록에 명시 포함) — 성립 시 그 설정을 성립 조건으로 문서화,
-      불허 시 Arm 후퇴
+- [ ] T304 `[needs-device→통과 보고]` FGS 백그라운드 시작 예외 스파이크 — **판정 완료
+      (2026-08-16 사용자, 2회 실측)**: ① 기본 상태 = 웨이크 성공·FGS 거부·T303 폴백 정상
+      ② **배터리 최적화 "제한 없음" 설정 후 = 콜드 웨이크 성립** (FGS 자동 기동 + 자동
+      레인징). **성립 조건 = 배터리 최적화 제외**로 확정 — constitution P8 예외 개정,
+      토글 ON 시 허용 대화상자(`ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) + 미설정
+      경고 로그 + UI 문구 반영. Arm 후퇴 불필요. 완료 판정은 checker 몫 (P11)
 - [ ] T305 `[needs-device]` 수용 1·2 실물 E2E (콘솔 v0.5 구현과 합동)
 
 ## Phase 4 — 검증·문서
@@ -74,6 +73,13 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
   확인: WoR·연결 후 30초 내 Write·연결 중 광고 중단(재시도=끊고 재스캔)·재발급=재Write —
   기 구현된 OobCentral 이 모두 충족. **Phase 3 부터 `feature/002-cold-wake` 브랜치로 진행**
   (Phase 1·2 커밋이 001 브랜치에 실린 것은 P12 이탈로 기록 — 001 머지에 포함됨).
+- 2026-08-16 T304 판정 + 결함 수정 — ① **콜드 웨이크 성립 (조건부)**: 배터리 최적화 제외
+  설정 시 백그라운드 FGS 허용 확인 (2회 실측). constitution P8 예외 개정 + 토글 ON 시
+  허용 대화상자·경고 로그·UI 문구 추가. ② **모드 4 keepOob 결함 발견·수정** (사용자 보고:
+  "콘솔 해제 후에도 폰이 연결된 상태"): 자동 실패 시 채널 유지(P7) 탓에 콘솔 재광고에
+  조용히 재연결 → 폰 세션 없이 콘솔만 트리거되는 반쪽 상태. **constitution P7 에 모드 4
+  예외 개정(코드보다 먼저)** 후 endSession 에서 CENTRAL 은 항상 채널·FGS 종료 → 휴면 복귀
+  (재교환은 웨이크가 대체). 시나리오 가이드 §6·§8-0 갱신.
 - 2026-08-15 T301~T303 [maker-ready] — 콜드 웨이크 (Android):
   · T301: `uwb/OobWakeScan.kt` — PendingIntent 스캔 등록/해제 (UUID HW 필터, LOW_POWER,
     FLAG_MUTABLE — 시스템이 결과 extras 를 채움). coordinator `toggleAutoWatch()` +

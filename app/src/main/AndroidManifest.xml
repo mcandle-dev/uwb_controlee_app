@@ -26,6 +26,10 @@
     <!-- API 33+ 알림 표시용 (거부돼도 FGS 동작에는 영향 없음 — 알림만 숨겨짐) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- spec 002 콜드 웨이크 성립 조건 (P8 예외, T304 실측): 배터리 최적화 제외 앱만
+         백그라운드 FGS 시작 허용 — 자동 감시 토글 ON 시 허용 대화상자를 띄운다 -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <application
         android:allowBackup="false"
         android:label="UWB Controlee v2"
