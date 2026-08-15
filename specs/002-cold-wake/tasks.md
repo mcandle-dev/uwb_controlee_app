@@ -32,9 +32,9 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 
 ## Phase 3 — 콜드 웨이크 (Android)
 
-- [ ] T301 자동 감시 토글 + PendingIntent 스캔 등록/해제 (`setServiceUuid` HW 필터 — D5)
-- [ ] T302 `OobWakeReceiver` → FGS `ACTION_AUTO_START` → coordinator 모드 4 자동 시퀀스
-- [ ] T303 FGS 기동 실패 폴백 — 고우선 알림, 탭 시 포그라운드 Start (수용 3)
+- [ ] T301 `[maker-ready]` 자동 감시 토글 + PendingIntent 스캔 등록/해제 (`setServiceUuid` HW 필터 — D5)
+- [ ] T302 `[maker-ready]` `OobWakeReceiver` → FGS `ACTION_AUTO_START` → coordinator 모드 4 자동 시퀀스
+- [ ] T303 `[maker-ready]` FGS 기동 실패 폴백 — 고우선 알림, 탭 시 포그라운드 Start (수용 3)
 - [ ] T304 `[needs-device]` FGS 백그라운드 시작 예외 스파이크 (불허 시 Arm 후퇴 — R2) +
       배터리 최적화 제외 안내
 - [ ] T305 `[needs-device]` 수용 1·2 실물 E2E (콘솔 v0.5 구현과 합동)
@@ -64,6 +64,23 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 - 2026-08-12 T001 진행 — handoff 사본을 콘솔 리포 작업트리(`uwb-console-kotlin/docs/handoff/`)에
   배치 (미커밋 — 콘솔 세션이 수령·커밋, 기존 관례의 역방향). **G1 승인 (사용자)** — Phase 1
   을 G2(001 검수)와 병행 착수.
+- 2026-08-15 콘솔 착수 신호 수령 (`HANDOFF_콘솔_모드4_준비완료.md`) — 콘솔 spec 009
+  전부 [maker-ready] + nRF 실측(검수 16 통과, 검수 15 콘솔 단독분 확인). 콘솔 제약 반영
+  확인: WoR·연결 후 30초 내 Write·연결 중 광고 중단(재시도=끊고 재스캔)·재발급=재Write —
+  기 구현된 OobCentral 이 모두 충족. **Phase 3 부터 `feature/002-cold-wake` 브랜치로 진행**
+  (Phase 1·2 커밋이 001 브랜치에 실린 것은 P12 이탈로 기록 — 001 머지에 포함됨).
+- 2026-08-15 T301~T303 [maker-ready] — 콜드 웨이크 (Android):
+  · T301: `uwb/OobWakeScan.kt` — PendingIntent 스캔 등록/해제 (UUID HW 필터, LOW_POWER,
+    FLAG_MUTABLE — 시스템이 결과 extras 를 채움). coordinator `toggleAutoWatch()` +
+    `auto_watch` 영속화, 모드 4 전용(모드 이탈 시 자동 OFF). UI: 모드 4 선택 시에만
+    Switch 노출, Activity 에서 SCAN·CONNECT+알림 권한 선요청
+  · T302: `uwb/OobWakeReceiver.kt` (manifest 등록, exported=false) — 웨이크 스로틀 10초 →
+    `RangingForegroundService.startAutoWake()` (ACTION_AUTO_START) → startForeground 직후
+    `coordinator.startAutoSession()`: 가용성 판정 → 주소 확보 대기(10초) → 모드 4 Start.
+    세션 활성/모드 불일치/준비 실패 시 로그 + FGS 종료 (P6)
+  · T303: FGS 기동 거부(백그라운드 제한) catch → 고우선 알림(탭=MainActivity) 폴백.
+    알림 권한 없으면 조용히 생략 (로그만)
+  **실기기 미검증 (P9)** — T304 스파이크(FGS 예외 허용 여부)가 최우선, 불허 시 Arm 후퇴.
 - 2026-08-15 T201~T204 [maker-ready] — 모드 4 (CENTRAL) 폰 구현:
   · T201: `UwbDefaults` 에 BOARD_INFO(5F1D0004)·PHONE_INFO(5F1D0005) 상수 + ADV_INFO_UUID
     주석을 v0.5 이중 역할(모드 3 Service Data / 모드 4 GATT 서비스)로 갱신.

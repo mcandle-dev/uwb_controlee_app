@@ -36,6 +36,8 @@ data class UiState(
     val blePermissionDenied: Boolean = false,
     /** 콘솔 광고 시뮬레이터 송출 중 (검수 12 테스트 보조 — 이 폰을 가짜 콘솔로) */
     val consoleSimActive: Boolean = false,
+    /** 자동 감시 (spec 002 T301, 모드 4 전용) — 콜드 웨이크 등록 상태 */
+    val autoWatchEnabled: Boolean = false,
 ) {
     val isSessionActive: Boolean
         get() = rangingState == RangingState.WAITING || rangingState == RangingState.RANGING
@@ -78,7 +80,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopRanging() = coordinator.stopRanging()
     fun onBlePermissionResult(granted: Boolean) = coordinator.onBlePermissionResult(granted)
 
-    // ── 테스트 보조 ──────────────────────────────────────────────────────
+    // ── 자동 감시 (spec 002) · 테스트 보조 ───────────────────────────────
+    fun toggleAutoWatch() = coordinator.toggleAutoWatch()
     fun toggleConsoleSimulator() = coordinator.toggleConsoleSimulator()
 
     override fun onCleared() {

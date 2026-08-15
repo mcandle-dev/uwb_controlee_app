@@ -46,6 +46,11 @@
             android:name=".RangingForegroundService"
             android:exported="false"
             android:foregroundServiceType="connectedDevice" />
+
+        <!-- spec 002 T302: 콜드 웨이크 — OS 가 PendingIntent 스캔 매치 시 명시적으로 깨움 -->
+        <receiver
+            android:name=".uwb.OobWakeReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

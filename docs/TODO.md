@@ -192,19 +192,24 @@
        `v2.0_controller_beacon`(콘솔), **같은 날 부착**
 5. [ ] **T404**: 완성 커밋 SHA 를 콘솔에 통보 → 콘솔 submodule pin bump (repo_guide §6)
 
-## 7. 다음 스텝 — 모드 4 (spec 002 콜드 웨이크, 코드 0줄)
+## 7. 다음 스텝 — 모드 4 (spec 002 콜드 웨이크) ★ 양쪽 구현 완료 — 합동 검수 대기
 
 - [x] G0 확정 (2026-08-12): Android + iOS 모두 지원, 충돌 시 iOS 기준 → 모드 4 채택
-- [x] **T001 해제 (2026-08-12)**: 사양서 **v0.5 확정** — 콘솔이 개정·회신 완료
-      (`docs/handoff/HANDOFF_모드4_v05_확정_회신.md`, 콘솔 `f6598d7` / 폰 `a3c0d17`).
-      확정값: Service `5F1D0003`, BOARD_INFO `5F1D0004`(Read), PHONE_INFO `5F1D0005`
-      (Write Without Response). **모드 4 코드 착수 가능** — 새 브랜치 `feature/002-cold-wake` 로
-- [x] G1: `RangingCoordinator` 리팩터 `[maker-ready]` (T102 실기기 회귀 확인 남음)
-- [ ] **G2 `[needs-device]`**: 위 §3 검수 통과 (리팩터 회귀 기준선). T102 를 §3 검수와
-      같은 세션에서 함께 확인 권장
-- [ ] T304 스파이크: Receiver 에서 FGS 기동 허용 여부 (불허 시 Arm 후퇴)
-- 콘솔 쪽 대응물: spec 009 (GATT-SERVER) — 콘솔 리포에서 병행 진행. 모드 4 합동 검수
-  (사양서 §8 검수 15~18)는 양쪽 구현 후 이 문서를 다시 개정해 절차를 추가한다
+- [x] **T001 해제 (2026-08-12)**: 사양서 **v0.5 확정** — 확정값: Service `5F1D0003`,
+      BOARD_INFO `5F1D0004`(Read), PHONE_INFO `5F1D0005`(Write Without Response)
+- [x] G1: `RangingCoordinator` 리팩터 [maker-ready] / G2: §3 검수 전 항목 통과 보고 (8-15)
+- [x] **Phase 2 (T201~T204, 8-15)**: 모드 4 폰 구현 [maker-ready] — `uwb/OobCentral.kt`
+      (스캔→연결→BOARD_INFO Read→PHONE_INFO Write), 드롭다운 "4 · GATT 연결 (iOS)".
+      ※ 001 브랜치에 커밋됨 (`c4c531f`)
+- [x] **Phase 3 (T301~T303, 8-15)**: 콜드 웨이크 [maker-ready] — `feature/002-cold-wake`
+      브랜치. 모드 4 선택 시 "자동 감시" 토글 → 앱을 닫아도 콘솔 발견 시
+      Receiver→FGS→자동 레인징. FGS 거부 시 고우선 알림 폴백
+- [ ] **T304 `[needs-device]` 스파이크 (최우선)**: 앱 태스크 제거 + 화면 OFF 상태에서
+      콘솔 광고 시작 → FGS 알림이 뜨고 자동 시작되는지. **거부되면(알림 폴백만 뜨면)
+      대기(Arm) 방식으로 후퇴** (기존 합의). Galaxy 절전 대비 배터리 최적화 제외 권장
+- [ ] **합동 검수 15~18** `[needs-device]`: 콘솔 spec 009(설정 "자동 연결 대기") ↔ 폰 모드 4.
+      15(연결·Read/Write→레인징) · 16(콘솔 광고 21B connectable — **8-15 통과 보고됨**) ·
+      17(폰 송출 0건 — nRF 로 폰 쪽 광고 부재 확인) · 18(끊김 후 재발견·재연결)
 - iOS 앱은 별도 리포 후속 (T501)
 
 ## 8. 참고 — 테스트 보조 도구·함정

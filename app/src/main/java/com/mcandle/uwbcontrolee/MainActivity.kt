@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                     onStartRanging = ::startRangingWithOob,
                     onRequestBlePermissions = ::requestBlePermissions,
                     onToggleConsoleSim = ::toggleConsoleSimulator,
+                    onToggleAutoWatch = ::toggleAutoWatch,
                 )
             }
         }
@@ -104,6 +105,21 @@ class MainActivity : ComponentActivity() {
 
     private fun requestBlePermissions() {
         blePermissionLauncher.launch(bleOobPermissionsFor(viewModel.uiState.value.oobMode))
+    }
+
+    /**
+     * 자동 감시 토글 (spec 002 T301) — 켤 때 모드 4 권한(SCAN·CONNECT)과 알림 권한
+     * (웨이크 알림 폴백용)이 없으면 먼저 요청한다 (허용 후 재탭 — 시뮬 버튼과 동일 패턴).
+     */
+    private fun toggleAutoWatch() {
+        val enabling: Boolean = !viewModel.uiState.value.autoWatchEnabled
+        if (enabling && !hasBleOobPermissions(this, OobMode.CENTRAL)) {
+            blePermissionLauncher.launch(
+                bleOobPermissionsFor(OobMode.CENTRAL) + missingNotificationPermission(),
+            )
+            return
+        }
+        viewModel.toggleAutoWatch()
     }
 
     /**

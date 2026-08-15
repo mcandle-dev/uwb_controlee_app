@@ -27,6 +27,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -87,6 +88,7 @@ fun MainScreen(
     onStartRanging: () -> Unit,
     onRequestBlePermissions: () -> Unit,
     onToggleConsoleSim: () -> Unit,
+    onToggleAutoWatch: () -> Unit,
 ) {
     val uiState: UiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
@@ -136,6 +138,7 @@ fun MainScreen(
                 uiState = uiState,
                 onStart = onStartRanging,
                 onStop = viewModel::stopRanging,
+                onToggleAutoWatch = onToggleAutoWatch,
             )
             MeasurementPanel(uiState = uiState, modifier = Modifier.weight(1f))
             LogConsole(logLines = uiState.logLines)
@@ -363,12 +366,13 @@ private fun OobModeSelector(
     }
 }
 
-/** (D) Start/Stop + 절차 안내 (FR-5/FR-10) */
+/** (D) Start/Stop + 절차 안내 (FR-5/FR-10) + 자동 감시 토글 (spec 002 T301, 모드 4 전용) */
 @Composable
 private fun ControlSection(
     uiState: UiState,
     onStart: () -> Unit,
     onStop: () -> Unit,
+    onToggleAutoWatch: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(SectionSpacing)) {
         Row(horizontalArrangement = Arrangement.spacedBy(SectionSpacing)) {
@@ -387,6 +391,21 @@ private fun ControlSection(
             text = "① 앱 Start → ② PC에서 run_fira_twr.py --dest-mac <내 주소> 실행 (순서 중요)",
             style = MaterialTheme.typography.bodySmall,
         )
+        if (uiState.oobMode == OobMode.CENTRAL) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(SectionSpacing),
+            ) {
+                Switch(
+                    checked = uiState.autoWatchEnabled,
+                    onCheckedChange = { onToggleAutoWatch() },
+                )
+                Text(
+                    text = "자동 감시 — 앱을 닫아도 콘솔 발견 시 자동 시작 (재부팅 시 재설정)",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }
 

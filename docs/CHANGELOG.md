@@ -6,6 +6,19 @@
 
 ## 2026-08-15
 
+### 콜드 웨이크 구현 — spec 002 Phase 3 (maker-ready, feature/002-cold-wake)
+
+- 콘솔 착수 신호 수령(`HANDOFF_콘솔_모드4_준비완료.md` — spec 009 maker-ready + nRF 실측).
+  기 구현 `OobCentral` 이 콘솔 제약 4건(WoR·30초 Write 창·끊고 재스캔·재발급 재Write) 충족 확인
+- **자동 감시 토글 (T301)** — `OobWakeScan`: PendingIntent 스캔 등록(앱이 죽어도 OS 유지,
+  UUID HW 필터·LOW_POWER·FLAG_MUTABLE). 모드 4 전용, 모드 이탈 시 자동 OFF, 재부팅 시 재설정 필요
+- **웨이크 경로 (T302)** — `OobWakeReceiver`(스로틀 10초) → FGS `ACTION_AUTO_START` →
+  `RangingCoordinator.startAutoSession()`: 가용성 → 주소 확보(10초 대기) → 모드 4 Start.
+  Activity 없이 백그라운드에서 전체 시퀀스 동작
+- **알림 폴백 (T303)** — FGS 기동 거부 시 고우선 알림(탭=앱 열기 → 포그라운드 Start)
+- **실기기 미검증 (P9)** — T304 스파이크(백그라운드 FGS 예외 허용 여부)가 최우선 확인 항목,
+  불허 시 대기(Arm) 방식 후퇴 (기존 합의)
+
 ### 모드 4 (GATT-CLIENT) 폰 구현 — spec 002 Phase 2 (maker-ready)
 
 - **`uwb/OobCentral.kt` 신설** — 사양서 v0.5 §3-1/§5-4/§6: 콘솔 connectable 광고를

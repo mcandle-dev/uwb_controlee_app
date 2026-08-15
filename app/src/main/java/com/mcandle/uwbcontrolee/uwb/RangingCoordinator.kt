@@ -23,9 +23,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 세션 조정자 (spec 002 T101 — plan D4) — Start 시퀀스·워치독·OOB 수명의 단일 소유자.
@@ -123,7 +125,12 @@ class RangingCoordinator private constructor(private val appContext: Context) {
     init {
         ProcessLifecycleOwner.get().lifecycle.addObserver(processLifecycleObserver)
         _uiState.update { state ->
-            state.copy(oobMode = OobMode.fromStorageValue(prefs.getString(KEY_OOB_MODE, null)))
+            state.copy(
+                oobMode = OobMode.fromStorageValue(prefs.getString(KEY_OOB_MODE, null)),
+                // 웨이크 등록은 OS 가 프로세스 밖에서 유지하므로 pref 가 곧 등록 상태다
+                // (재부팅 시 OS 등록만 소멸 — spec 002 범위 밖, 토글 재조작으로 복구)
+                autoWatchEnabled = prefs.getBoolean(KEY_AUTO_WATCH, false),
+            )
         }
         // 배지는 현재 모드의 채널 것만 반영 — 비활성 채널은 close 되어 OFF 로 조용하다
         scope.launch {
@@ -199,9 +206,72 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         // 자동 실패 후 keepOob 로 살아 있던 채널도 모드 전환은 명시적 사용자 행위이므로 닫는다
         closeOobChannels()
         RangingForegroundService.stop(appContext)
+        // 자동 감시는 모드 4 전용 — 모드를 떠나면 웨이크 등록도 함께 해제 (spec 002 T301)
+        if (mode != OobMode.CENTRAL && state.autoWatchEnabled) {
+            OobWakeScan.unregister(appContext)
+            prefs.edit().putBoolean(KEY_AUTO_WATCH, false).apply()
+            _uiState.update { current -> current.copy(autoWatchEnabled = false) }
+            appendLog("자동 감시 OFF — 모드 4 를 벗어나 웨이크 등록 해제")
+        }
         prefs.edit().putString(KEY_OOB_MODE, mode.storageValue).apply()
         _uiState.update { current -> current.copy(oobMode = mode, oobStatus = OobStatus.OFF) }
         appendLog("OOB 모드 변경: ${mode.label}")
+    }
+
+    // ── 자동 감시 · 콜드 웨이크 (spec 002 T301/T302) ─────────────────────
+
+    /**
+     * 자동 감시 토글 (T301) — ON: PendingIntent 스캔 등록(앱이 죽어도 OS 가 유지),
+     * OFF: 해제. 모드 4 전용. 재부팅 시 OS 등록이 소멸하므로 토글로 재등록해야 한다.
+     */
+    fun toggleAutoWatch() {
+        val enabling: Boolean = !_uiState.value.autoWatchEnabled
+        if (enabling) {
+            if (_uiState.value.oobMode != OobMode.CENTRAL) {
+                appendLog("자동 감시는 모드 4(GATT 연결)에서만 사용 가능 — 모드를 먼저 전환")
+                return
+            }
+            if (!OobWakeScan.register(appContext)) {
+                appendLog("자동 감시 등록 실패 — 블루투스 상태/BLE 권한 확인 (UWB 수동 흐름 무영향)")
+                return
+            }
+            appendLog("자동 감시 ON — 콘솔 발견 시 백그라운드에서 자동 시작 (재부팅하면 다시 켜야 함)")
+        } else {
+            OobWakeScan.unregister(appContext)
+            appendLog("자동 감시 OFF — 웨이크 등록 해제")
+        }
+        prefs.edit().putBoolean(KEY_AUTO_WATCH, enabling).apply()
+        _uiState.update { state -> state.copy(autoWatchEnabled = enabling) }
+    }
+
+    /**
+     * 콜드 웨이크 자동 시작 (T302) — FGS(ACTION_AUTO_START)가 호출. Activity 없이
+     * 가용성 판정 → 주소 확보 → 모드 4 Start 를 순서대로 밟는다. 세션이 이미 활성이면
+     * 무시 (웨이크 브로드캐스트는 반복될 수 있다 — Receiver 스로틀과 이중 방어).
+     */
+    fun startAutoSession() {
+        if (_uiState.value.isSessionActive) return
+        appendLog("자동 감시 웨이크 — 콘솔 발견, 백그라운드 자동 시작 시퀀스 (모드 4)")
+        scope.launch {
+            applyAvailability(repository.checkAvailability())
+            val ready: Boolean = withTimeoutOrNull(AUTO_WAKE_READY_TIMEOUT_MS) {
+                uiState.first { state ->
+                    state.availability == UwbAvailability.READY && state.myAddress != null
+                }
+            } != null
+            if (!ready) {
+                appendLog("자동 시작 중단 — UWB 준비/주소 확보 실패 (FGS 종료)")
+                RangingForegroundService.stop(appContext)
+                return@launch
+            }
+            if (_uiState.value.isSessionActive) return@launch // 대기 중 사용자가 이미 시작
+            if (_uiState.value.oobMode != OobMode.CENTRAL) {
+                appendLog("자동 시작 중단 — 현재 모드가 4 가 아님 (FGS 종료)")
+                RangingForegroundService.stop(appContext)
+                return@launch
+            }
+            startRanging() // 기존 Start 경로 그대로 — CENTRAL 분기 진입
+        }
     }
 
     // ── 가용성 / 주소 (FR-1~3) ──────────────────────────────────────────
@@ -797,6 +867,12 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         /** 모드 영속화 (spec 001, plan D3) */
         private const val PREFS_NAME: String = "uwb_controlee_prefs"
         private const val KEY_OOB_MODE: String = "oob_mode"
+
+        /** 자동 감시 영속화 (spec 002 T301) */
+        private const val KEY_AUTO_WATCH: String = "auto_watch"
+
+        /** 콜드 스타트 시 UWB 준비·주소 확보 대기 상한 (spec 002 T302) */
+        private const val AUTO_WAKE_READY_TIMEOUT_MS: Long = 10_000L
 
         @Volatile
         private var instance: RangingCoordinator? = null
