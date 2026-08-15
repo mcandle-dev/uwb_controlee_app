@@ -4,7 +4,7 @@
 constitution 제정(P1~P15)을 수반한다. v1 까지의 이력은 `docs/`(CHANGELOG·작업일지)에 있다.
 
 입력 문서: `docs/handoff/HANDOFF_008_controlee_scanner.md` (콘솔 세션이 전달)
-계약 원문: `docs/oob/BLE_OOB_인터페이스_사양서.md` **v0.3** (마스터는 콘솔 리포 — P5)
+계약 원문: `docs/oob/BLE_OOB_인터페이스_사양서.md` **v0.3** (마스터는 콘솔 리포 — P5)`
 
 ## 목적
 
