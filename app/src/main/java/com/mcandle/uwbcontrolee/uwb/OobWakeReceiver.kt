@@ -12,6 +12,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.mcandle.uwbcontrolee.MainActivity
 import com.mcandle.uwbcontrolee.RangingForegroundService
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 콜드 웨이크 수신기 (spec 002 T302/T303 — plan D3/D5).
@@ -30,6 +33,7 @@ class OobWakeReceiver : BroadcastReceiver() {
         val errorCode: Int = intent.getIntExtra(BluetoothLeScanner.EXTRA_ERROR_CODE, NO_ERROR)
         if (errorCode != NO_ERROR) {
             Log.w(TAG, "웨이크 스캔 오류 code=$errorCode — 무시 (수동 경로는 유효)")
+            recordWake(context, "스캔 오류 code=$errorCode")
             return
         }
         // 광고가 계속 매치되면 브로드캐스트가 반복된다 — 스로틀 + coordinator 쪽 no-op 이중 방어
@@ -39,10 +43,34 @@ class OobWakeReceiver : BroadcastReceiver() {
         Log.i(TAG, "콘솔 광고 매치 — FGS 자동 시작 시도")
         try {
             RangingForegroundService.startAutoWake(context)
+            recordWake(context, "웨이크 → FGS 기동")
         } catch (t: Throwable) {
             // ForegroundServiceStartNotAllowedException 등 — 백그라운드 FGS 제한 (T304)
             Log.w(TAG, "FGS 기동 거부 (${t.javaClass.simpleName}) — 알림 폴백 (T303)")
+            recordWake(context, "웨이크 → FGS 거부(${t.javaClass.simpleName}) → 알림 폴백")
             postFallbackNotification(context)
+        }
+    }
+
+    /**
+     * 웨이크 이력 기록 (간헐 실패 진단) — 앱이 죽어 있는 동안의 웨이크 시도·결과를 prefs 에
+     * 남겨, 다음 앱 실행 때 로그 콘솔에서 adb 없이 확인한다. 최근 [WAKE_HISTORY_MAX]건 유지.
+     */
+    private fun recordWake(context: Context, outcome: String) {
+        runCatching {
+            val prefs = context.getSharedPreferences(
+                RangingCoordinator.PREFS_NAME, Context.MODE_PRIVATE,
+            )
+            val stamp: String =
+                SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date())
+            val lines: List<String> =
+                (prefs.getString(RangingCoordinator.KEY_WAKE_HISTORY, "")!!.lines() +
+                    "$stamp $outcome")
+                    .filter { it.isNotBlank() }
+                    .takeLast(WAKE_HISTORY_MAX)
+            prefs.edit()
+                .putString(RangingCoordinator.KEY_WAKE_HISTORY, lines.joinToString("\n"))
+                .apply()
         }
     }
 
@@ -84,6 +112,9 @@ class OobWakeReceiver : BroadcastReceiver() {
 
         /** 반복 브로드캐스트 스로틀 — 광고 주기(~250ms)마다 FGS 재기동 시도 방지 */
         private const val WAKE_THROTTLE_MS: Long = 10_000L
+
+        /** 웨이크 이력 보존 건수 (진단용 — 로그 폭주 방지) */
+        private const val WAKE_HISTORY_MAX: Int = 5
 
         @Volatile
         private var lastWakeAtMillis: Long = 0L

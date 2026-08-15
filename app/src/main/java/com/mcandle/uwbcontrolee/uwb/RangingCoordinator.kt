@@ -133,6 +133,12 @@ class RangingCoordinator private constructor(private val appContext: Context) {
                 autoWatchEnabled = prefs.getBoolean(KEY_AUTO_WATCH, false),
             )
         }
+        // 웨이크 이력 노출 (간헐 실패 진단): 콜드 스타트로 죽었다 깨어난 사이의 웨이크
+        // 시도·결과를 Receiver 가 prefs 에 남긴다 — 앱을 열면 로그 콘솔에서 확인 가능
+        prefs.getString(KEY_WAKE_HISTORY, null)?.takeIf { it.isNotBlank() }?.let { history ->
+            appendLog("── 지난 웨이크 이력 (최근 ${history.lines().size}건, adb 불필요) ──")
+            history.lines().forEach { line -> appendLog("  $line") }
+        }
         // 배지는 현재 모드의 채널 것만 반영 — 비활성 채널은 close 되어 OFF 로 조용하다
         scope.launch {
             oobServer.status.collect { status ->
@@ -877,9 +883,12 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         /** 프레임워크 자동 종료(10초)보다 여유 있게 — WAITING에서 이 시간 내 측정 없으면 ERROR */
         private const val WAITING_TIMEOUT_MS: Long = 12_000L
 
-        /** 모드 영속화 (spec 001, plan D3) */
-        private const val PREFS_NAME: String = "uwb_controlee_prefs"
+        /** 모드 영속화 (spec 001, plan D3). OobWakeReceiver 가 웨이크 이력을 같은 파일에 남긴다 */
+        internal const val PREFS_NAME: String = "uwb_controlee_prefs"
         private const val KEY_OOB_MODE: String = "oob_mode"
+
+        /** 웨이크 이력 (spec 002 — 간헐 실패 진단용). Receiver 가 쓰고 여기서 읽어 로그로 노출 */
+        internal const val KEY_WAKE_HISTORY: String = "wake_history"
 
         /** 자동 감시 영속화 (spec 002 T301) */
         private const val KEY_AUTO_WATCH: String = "auto_watch"
