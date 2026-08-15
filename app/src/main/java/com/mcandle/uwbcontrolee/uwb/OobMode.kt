@@ -16,6 +16,13 @@ enum class OobMode(val storageValue: String, val label: String) {
 
     /** 모드 3 — 콘솔 광고(5F1D0003) 관찰, 보드 MAC·SID 자동 반영. 콘솔 짝: ADVERTISE */
     SCANNER("SCANNER", "3 · SCANNER 관찰"),
+
+    /**
+     * 모드 4 (v0.5, spec 002) — 폰이 central: 콘솔 connectable 광고를 스캔·연결해
+     * BOARD_INFO Read / PHONE_INFO Write. **폰 송출 0건 — iOS 가 성립하는 유일한 자동
+     * 경로** (사양서 §10). 콘솔 짝: GATT-SERVER
+     */
+    CENTRAL("CENTRAL", "4 · GATT 연결 (iOS)"),
     ;
 
     companion object {

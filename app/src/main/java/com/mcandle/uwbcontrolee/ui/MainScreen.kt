@@ -253,13 +253,15 @@ private fun MyAddressCard(
  */
 @Composable
 private fun OobBadge(status: OobStatus, mode: OobMode) {
-    val isScanner: Boolean = mode == OobMode.SCANNER
+    // 관찰형 모드(3 SCANNER · 4 CENTRAL)는 ADVERTISING 상태값의 의미가 "스캔중"이다 (§6-1 매핑)
+    val isObserver: Boolean = mode == OobMode.SCANNER || mode == OobMode.CENTRAL
     val badge: Pair<Color, String> = when (status) {
         OobStatus.OFF -> return
         OobStatus.ADVERTISING ->
-            BadgeColorWaiting to if (isScanner) "⚪ 스캔중" else "⚪ 광고중"
+            BadgeColorWaiting to if (isObserver) "⚪ 스캔중" else "⚪ 광고중"
         OobStatus.CONNECTED ->
-            BadgeColorRanging to if (isScanner) "🔵 광고 수신됨" else "🔵 콘솔 연결됨"
+            // 모드 3 은 연결 없는 수신 확정, 모드 4 는 진짜 GATT 연결 — 표기 구분
+            BadgeColorRanging to if (mode == OobMode.SCANNER) "🔵 광고 수신됨" else "🔵 콘솔 연결됨"
         OobStatus.UNAVAILABLE -> BadgeColorIdle to "OOB 비활성"
     }
     Box(

@@ -63,10 +63,25 @@ object UwbDefaults {
     /** OOB_INFO Characteristic UUID — Read + Notify (Write 없음) */
     val OOB_CHARACTERISTIC_UUID: UUID = UUID.fromString("5F1D0002-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
 
-    /** 콘솔→폰 광고(Service Data) UUID — 모드 3(SCANNER) 전용, 사양서 v0.3 §5-2 신설 */
+    /**
+     * 콘솔 방향 식별자 UUID (사양서 v0.5 §3-1·§5-2/4) — 두 모드가 같은 값을 쓴다:
+     * 모드 3 = 콘솔 광고의 Service Data UUID / 모드 4 = 콘솔 GATT 서비스 + 광고 UUID 목록.
+     * AD 종류가 달라(Service Data vs UUID 목록) 교차 매치는 없다 (§5-4).
+     */
     val ADV_INFO_UUID: UUID = UUID.fromString("5F1D0003-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
 
-    /** 모드 3 스캔 폴백 대기 — 기존 OOB Read 대기(30초)와 동일값 (plan 001 D4) */
+    /** 모드 4 BOARD_INFO 특성 — Read, payload 7B (`uwb_address`=보드 MAC) — 사양서 v0.5 §3-1 */
+    val BOARD_INFO_CHARACTERISTIC_UUID: UUID =
+        UUID.fromString("5F1D0004-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
+
+    /**
+     * 모드 4 PHONE_INFO 특성 — **Write Without Response**, payload 7B (`uwb_address`=폰 주소).
+     * 응답이 없으므로 콘솔의 검증 실패는 폰에 전달되지 않는다 (사양서 v0.5 §3-1/§7-18).
+     */
+    val PHONE_INFO_CHARACTERISTIC_UUID: UUID =
+        UUID.fromString("5F1D0005-9A8B-4C7D-B2E3-6F4A5D8C9B0A")
+
+    /** 모드 3 스캔 / 모드 4 교환 폴백 대기 — 기존 OOB Read 대기(30초)와 동일값 (plan 001 D4) */
     const val SCAN_WAIT_TIMEOUT_MS: Long = 30_000L
 
     /** 광고 Local Name — 콘솔이 UUID 필터와 함께 참고 (사양서 §3) */

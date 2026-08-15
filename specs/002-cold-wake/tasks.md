@@ -6,9 +6,10 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 
 - [x] G0 `[human]` **iOS 지원 여부 확정** — 2026-08-12 사용자: **Android+iOS 모두 지원,
       충돌 시 iOS 기준.** 이에 따라 모드 4(GATT 역방향) 채택, spec/plan 전면 개정
-- [ ] T001 `[human/cross-repo]` **사양서 v0.5 개정** — 콘솔 세션에
-      `docs/handoff/HANDOFF_모드4_사양서개정_요청.md` 전달, 개정본(양 리포 사본) 수령.
-      **확정 전 모드 4 코드(T2xx 이후) 착수 금지 (P5)**
+- [x] T001 `[human/cross-repo]` **사양서 v0.5 개정 — 완료** (콘솔 세션 회신, 사본 배치·커밋
+      `a3c0d17`). 확정값: 서비스 `5F1D0003` 승계, BOARD_INFO `5F1D0004`(Read),
+      PHONE_INFO `5F1D0005`(**Write Without Response**), 콘솔 광고 = Flags+UUID 목록 21B
+      connectable, 모드 3 과 **대체 관계**(동시 운용 안 함). → T2xx 착수 가능
 - [x] T002 `[human]` G1 — 조정 로직 `RangingCoordinator` 추출 **승인** (2026-08-12 사용자)
 - [ ] T003 `[needs-device]` G2 — spec 001 실기기 검수 10~13 통과 (리팩터 기준선, plan R5)
 
@@ -63,6 +64,20 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 - 2026-08-12 T001 진행 — handoff 사본을 콘솔 리포 작업트리(`uwb-console-kotlin/docs/handoff/`)에
   배치 (미커밋 — 콘솔 세션이 수령·커밋, 기존 관례의 역방향). **G1 승인 (사용자)** — Phase 1
   을 G2(001 검수)와 병행 착수.
+- 2026-08-15 T201~T204 [maker-ready] — 모드 4 (CENTRAL) 폰 구현:
+  · T201: `UwbDefaults` 에 BOARD_INFO(5F1D0004)·PHONE_INFO(5F1D0005) 상수 + ADV_INFO_UUID
+    주석을 v0.5 이중 역할(모드 3 Service Data / 모드 4 GATT 서비스)로 갱신.
+    `OobMode.CENTRAL`("4 · GATT 연결 (iOS)") 추가 — 기존 storageValue 무변경 (P10)
+  · T202: `uwb/OobCentral.kt` 신설 — UUID 목록 HW 필터 스캔 → connectGatt →
+    BOARD_INFO Read → PHONE_INFO Write(WoR, API 33 분기). 재Start=재Write/스캔 재개,
+    연결 끊김=스캔 복귀(§7-17), 주소 재발급=updatePayload 재Write(§3-1),
+    실패 무전파(P6). 권한은 SCAN+CONNECT 만 (송출 0건 — §10, ADVERTISE 불요청)
+  · T203: coordinator Start 분기 CENTRAL 추가(미교환 30초 폴백 §7-16, 기존 경로 무변경),
+    BOARD_INFO 수신 → 입력 반영 → SID 변경 시 재Write → UWB 시작. 배지 표기:
+    관찰형(3·4)=스캔중, 모드 4 CONNECTED="콘솔 연결됨". 드롭다운은 entries 라 자동 노출
+  · T204: `Mode4ContractTest` 6건 — UUID 리터럴 스냅샷 + Read/Write 양방향 payload 의미
+    (v1 빌더/파서 재사용 — 신규 포맷 0). 가이드 §7 을 확정 계약으로 갱신 (T403 일부).
+    **실기기 미검증 (P9) — 검수 15~18 은 콘솔 spec 009 구현과 합동 [needs-device].**
 - 2026-08-12 T101 [maker-ready] — `uwb/RangingCoordinator.kt` 신설: MainViewModel 의 조정
   로직(Start 분기·워치독·OOB 수명·시뮬레이터·영속화) 전량을 동작 무변경으로 이식.
   viewModelScope→자체 Main.immediate scope, getApplication()→appContext 치환 외 문장 동일.

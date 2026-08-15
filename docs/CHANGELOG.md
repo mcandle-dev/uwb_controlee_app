@@ -6,6 +6,17 @@
 
 ## 2026-08-15
 
+### 모드 4 (GATT-CLIENT) 폰 구현 — spec 002 Phase 2 (maker-ready)
+
+- **`uwb/OobCentral.kt` 신설** — 사양서 v0.5 §3-1/§5-4/§6: 콘솔 connectable 광고를
+  UUID 목록 HW 필터로 스캔 → GATT 연결 → BOARD_INFO(`5F1D0004`) Read →
+  PHONE_INFO(`5F1D0005`) Write Without Response. **폰 송출 0건 — iOS 성립 조건 충족 (§10)**
+- `OobMode.CENTRAL`("4 · GATT 연결 (iOS)") + coordinator Start 분기(미교환 30초 폴백 §7-16)
+  + 주소 재발급 시 재Write(§3-1) + 연결 끊김 시 스캔 복귀(§7-17). 기존 모드 1~3 경로 무변경
+- 권한: 모드 4 는 SCAN+CONNECT 만 요청 (ADVERTISE 불요청 — 불필요 권한 금지)
+- JVM 테스트 `Mode4ContractTest` 6건 (UUID 스냅샷·payload 양방향). 가이드 §7 확정 계약으로 갱신
+- **실기기 미검증 (P9)** — 검수 15~18 은 콘솔 spec 009(GATT-SERVER) 구현과 합동
+
 ### 실기기 검수 10~14 전부 통과 보고 — spec 001 Phase 5 실기기 몫 완료
 
 - 검수 11 (모드 1 회귀, 08-13) · 14 (광고 프레임 7B·LE 실측) · 10 (모드 2 E2E — 3초 내

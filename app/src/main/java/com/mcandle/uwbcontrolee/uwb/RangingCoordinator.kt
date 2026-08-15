@@ -69,6 +69,13 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         onAdvertReceived = { payload -> scope.launch { onOobAdvertReceived(payload) } },
     )
 
+    /** OOB 모드 4 (GATT-CLIENT, spec 002 T202) — 콘솔 연결·Read/Write. 콜백은 바인더 스레드 → 마샬링 */
+    private val oobCentral: OobCentral = OobCentral(
+        context = appContext,
+        onEvent = { message -> scope.launch { appendLog(message) } },
+        onBoardInfoReceived = { payload -> scope.launch { onOobBoardInfoReceived(payload) } },
+    )
+
     /**
      * 콘솔 광고 시뮬레이터 (검수 12 테스트 보조) — 이 폰을 "가짜 콘솔"로 만들어
      * ADV_INFO(`5F1D0003`)를 보드 MAC·SID 입력값으로 송출한다. 두 번째 폰에 같은 앱을
@@ -136,6 +143,13 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         scope.launch {
             oobScanner.status.collect { status ->
                 if (_uiState.value.oobMode == OobMode.SCANNER) {
+                    _uiState.update { state -> state.copy(oobStatus = status) }
+                }
+            }
+        }
+        scope.launch {
+            oobCentral.status.collect { status ->
+                if (_uiState.value.oobMode == OobMode.CENTRAL) {
                     _uiState.update { state -> state.copy(oobStatus = status) }
                 }
             }
@@ -250,8 +264,8 @@ class RangingCoordinator private constructor(private val appContext: Context) {
     }
 
     /**
-     * 주소 재발급 시 갱신 전파 — 모드 1 은 Notify(FR-13), 모드 2 는 광고 교체(사양서 §7-15).
-     * 두 채널 모두에 밀어도 닫힌 쪽은 저장만 하고 무동작이라 안전하다.
+     * 주소 재발급·SID 변경 시 갱신 전파 — 모드 1 = Notify(FR-13), 모드 2 = 광고 교체(§7-15),
+     * 모드 4 = PHONE_INFO 재Write(§3-1). 전 채널에 밀어도 닫힌 쪽은 저장만 하고 무동작이라 안전.
      */
     private fun pushOobPayloadUpdate(addressHex: String) {
         val addressBytes: ByteArray = parseBoardMac(addressHex) ?: return
@@ -259,6 +273,7 @@ class RangingCoordinator private constructor(private val appContext: Context) {
             val payload: ByteArray = UwbDefaults.buildOobPayload(addressBytes, activeSessionId)
             oobServer.updatePayload(payload)
             oobBeacon.updatePayload(payload)
+            oobCentral.updatePayload(payload)
         }
     }
 
@@ -338,6 +353,16 @@ class RangingCoordinator private constructor(private val appContext: Context) {
                     waitingForScanAdvert = true
                     appendLog("OOB 보류 — BLE 권한 응답 대기")
                 }
+            // 모드 4 (spec 002 T203): 스캔 → 연결 → BOARD_INFO Read → PHONE_INFO Write →
+            // UWB 시작. 미교환 30초 후 수동 입력값 폴백 (§7-16 — §7-14 동형).
+            OobMode.CENTRAL ->
+                if (hasBleOobPermissions(appContext, OobMode.CENTRAL)) {
+                    openOobCentral(sessionId)
+                    waitForBoardInfo()
+                } else {
+                    waitingForScanAdvert = true
+                    appendLog("OOB 보류 — BLE 권한 응답 대기")
+                }
         }
     }
 
@@ -360,6 +385,10 @@ class RangingCoordinator private constructor(private val appContext: Context) {
                 OobMode.SCANNER -> if (rangingJob == null) {
                     openOobScanner()
                     waitForOobAdvert()
+                }
+                OobMode.CENTRAL -> if (rangingJob == null) {
+                    openOobCentral(activeSessionId)
+                    waitForBoardInfo()
                 }
             }
         } else {
@@ -436,6 +465,56 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         beginPendingRanging("콘솔 광고 수신")
     }
 
+    /** 모드 4: BOARD_INFO 교환 대기 (T203). 미교환 시 수동 입력값 폴백 (§7-16) */
+    private fun waitForBoardInfo() {
+        if (rangingJob != null) return
+        waitingForScanAdvert = true // 의미: "콘솔발 파라미터 대기" — 모드 3 과 공용 플래그
+        oobWaitJob?.cancel()
+        appendLog("콘솔 GATT 교환 대기(최대 ${UwbDefaults.SCAN_WAIT_TIMEOUT_MS / 1000}초) — 연결·Read 즉시 자동 반영")
+        oobWaitJob = scope.launch {
+            delay(UwbDefaults.SCAN_WAIT_TIMEOUT_MS)
+            if (waitingForScanAdvert && _uiState.value.isSessionActive) {
+                appendLog("콘솔 GATT 교환 미완료 — 수동 입력값으로 UWB 시작 (양쪽 모드가 짝인지 확인, §7-11/16)")
+                beginPendingRanging("GATT 교환 대기 시간 초과")
+            }
+        }
+    }
+
+    /**
+     * 모드 4: BOARD_INFO Read 성공 (T203) — 보드 MAC·SID 반영 → UWB 시작.
+     * PHONE_INFO Write 는 OobCentral 이 Read 직후 수행하고, SID 가 바뀌면 아래
+     * pushOobPayloadUpdate 경유 재Write 로 정정된다 (Write Without Response — 부담 없음).
+     */
+    private fun onOobBoardInfoReceived(payload: ByteArray) {
+        if (!_uiState.value.isSessionActive) return
+        val info: OobInfo = UwbDefaults.parseOobPayload(payload) ?: run {
+            appendLog("BOARD_INFO 파싱 실패 (${payload.size}B) — 무시 (§7-13)")
+            return
+        }
+        if (info.protocolVersion != UwbDefaults.OOB_PROTOCOL_VERSION.toInt()) {
+            appendLog("경고 — OOB 버전 ${info.protocolVersion} 수신, v1 로 해석 시도 (사양서 §4)")
+        }
+        if (rangingJob != null) {
+            appendLog("BOARD_INFO 변경 감지 (보드 ${info.addressHex}, session ${info.sessionId}) — 세션 중 변경 미지원, 재Start 필요")
+            return
+        }
+        waitingForScanAdvert = false
+        appendLog("BOARD_INFO 수신 — 보드 ${info.addressHex} · session ${info.sessionId} 자동 반영")
+        _uiState.update { state ->
+            state.copy(
+                boardMacInput = info.addressHex,
+                boardMacError = null,
+                sessionIdInput = info.sessionId.toString(),
+                sessionIdError = null,
+            )
+        }
+        pendingBoardMac = parseBoardMac(info.addressHex)
+        activeSessionId = info.sessionId
+        // SID 가 Start 시점 값과 다르면 PHONE_INFO 를 새 SID 로 재Write (콘솔 SID 일치 검증 대비)
+        _uiState.value.myAddress?.let(::pushOobPayloadUpdate)
+        beginPendingRanging("BOARD_INFO 수신 (GATT 교환 완료)")
+    }
+
     private fun beginPendingRanging(reason: String) {
         if (rangingJob != null || !_uiState.value.isSessionActive) return
         val boardMac: ByteArray = pendingBoardMac ?: return
@@ -471,6 +550,20 @@ class RangingCoordinator private constructor(private val appContext: Context) {
     private fun openOobScanner() {
         try {
             oobScanner.open()
+        } catch (t: Throwable) {
+            appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
+        }
+    }
+
+    /** 모드 4 CENTRAL 시작 (spec 002 T203) — openOobServer 와 동일한 실패 무전파 규칙 (P6) */
+    private fun openOobCentral(sessionId: Int) {
+        val addressBytes: ByteArray? = _uiState.value.myAddress?.let(::parseBoardMac)
+        if (addressBytes == null) {
+            appendLog("OOB 생략 — 내 주소를 2바이트로 해석 불가")
+            return
+        }
+        try {
+            oobCentral.open(UwbDefaults.buildOobPayload(addressBytes, sessionId))
         } catch (t: Throwable) {
             appendLog("OOB 시작 실패(무시): ${t.message ?: t.javaClass.simpleName}")
         }
@@ -561,9 +654,9 @@ class RangingCoordinator private constructor(private val appContext: Context) {
             finalState == RangingState.ERROR || finalState == RangingState.DISCONNECTED
         if (keepOob) {
             // FGS도 함께 유지 — 백그라운드에서 실패해도 채널·프로세스가 살아 있어
-            // 재발급 주소가 콘솔에 닿는다 (모드 1=Notify, 모드 2=광고 교체 — P7).
+            // 재발급 주소가 콘솔에 닿는다 (모드 1=Notify, 모드 2=광고 교체, 모드 4=재Write — P7).
             // 다음 Start/Stop/모드 전환/shutdown에서 정리.
-            appendLog("OOB 유지 — 새 주소를 콘솔에 자동 전달 (모드 1 Notify / 모드 2 광고 교체)")
+            appendLog("OOB 유지 — 새 주소를 콘솔에 자동 전달 (모드 1 Notify / 모드 2 광고 교체 / 모드 4 재Write)")
         } else {
             closeOobChannels()
             RangingForegroundService.stop(appContext)
@@ -672,6 +765,7 @@ class RangingCoordinator private constructor(private val appContext: Context) {
         runCatching { oobServer.close() }
         runCatching { oobBeacon.close() }
         runCatching { oobScanner.close() }
+        runCatching { oobCentral.close() }
     }
 
     /**

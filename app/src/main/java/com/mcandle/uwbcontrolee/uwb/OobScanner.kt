@@ -160,15 +160,15 @@ class OobScanner(
 }
 
 /**
- * 모드별 필요 BLE 권한 (plan D5) — SCANNER 만 `BLUETOOTH_SCAN` 이 추가로 필요하다.
- * 모드 1·2 에서는 요청하지 않는다 (불필요 권한 요구 금지).
+ * 모드별 필요 BLE 권한 (plan D5) — 불필요 권한은 요청하지 않는다:
+ * 모드 1·2 = ADVERTISE+CONNECT / 모드 3 = +SCAN / 모드 4 = SCAN+CONNECT
+ * (central 은 송출 0건이라 ADVERTISE 불필요 — 사양서 v0.5 §10).
  */
-fun bleOobPermissionsFor(mode: OobMode): Array<String> =
-    if (mode == OobMode.SCANNER) {
-        BLE_OOB_PERMISSIONS + Manifest.permission.BLUETOOTH_SCAN
-    } else {
-        BLE_OOB_PERMISSIONS
-    }
+fun bleOobPermissionsFor(mode: OobMode): Array<String> = when (mode) {
+    OobMode.SCANNER -> BLE_OOB_PERMISSIONS + Manifest.permission.BLUETOOTH_SCAN
+    OobMode.CENTRAL -> OobCentral.CENTRAL_PERMISSIONS
+    else -> BLE_OOB_PERMISSIONS
+}
 
 /** 모드 기준 OOB 권한 보유 여부 — Activity(요청 시점)와 ViewModel(Start 가드)이 공용 */
 fun hasBleOobPermissions(context: Context, mode: OobMode): Boolean =
