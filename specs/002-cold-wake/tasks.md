@@ -36,7 +36,12 @@ plan.md (D1~D6) 실행 순서. maker 는 `[maker-ready]` 까지만 (P11).
 - [ ] T302 `[maker-ready]` `OobWakeReceiver` → FGS `ACTION_AUTO_START` → coordinator 모드 4 자동 시퀀스
 - [ ] T303 `[maker-ready]` FGS 기동 실패 폴백 — 고우선 알림, 탭 시 포그라운드 Start (수용 3)
 - [ ] T304 `[needs-device]` FGS 백그라운드 시작 예외 스파이크 (불허 시 Arm 후퇴 — R2) +
-      배터리 최적화 제외 안내
+      배터리 최적화 제외 안내 — **1차 결과 (2026-08-16 사용자)**: OS 웨이크→리시버 콜드
+      스타트 **성공**, FGS 기동 **거부**(ForegroundServiceStartNotAllowedException — PendingIntent
+      스캔 결과는 시스템 블루투스 브로드캐스트 예외에 미해당 판정), **T303 폴백 알림 정상
+      동작 확인**. 2차 재시험 지시: 배터리 최적화 "제한 없음" 설정 후 반복 (power-save
+      exemption 은 예외 목록에 명시 포함) — 성립 시 그 설정을 성립 조건으로 문서화,
+      불허 시 Arm 후퇴
 - [ ] T305 `[needs-device]` 수용 1·2 실물 E2E (콘솔 v0.5 구현과 합동)
 
 ## Phase 4 — 검증·문서
